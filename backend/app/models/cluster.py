@@ -1,65 +1,61 @@
 """
-Cluster models — semantic clusters of documents.
+Cluster models — semantic clusters of documents from a clustering run.
 
-Clusters group semantically similar documents discovered through
-embedding-based clustering (HDBSCAN, K-Means, etc.).
+A run clusters one scope (dataset or live) at a time. Only the latest run per
+scope is marked is_active; older runs are kept for comparison.
 """
 
-from datetime import datetime, timezone
-from sqlalchemy import (
-    Column, Integer, String, Text, Float, DateTime,
-    ForeignKey, Index
-)
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
+
 from backend.app.database import Base
+from backend.app.models.coltypes import UTCDateTime, utcnow
 
 
 class Cluster(Base):
     __tablename__ = "clusters"
 
     id = Column(Integer, primary_key=True, index=True)
-    cluster_label = Column(Integer, nullable=False, doc="Numeric cluster ID from algorithm")
-    name = Column(String(200), nullable=True, doc="Auto-generated or human-assigned cluster name")
+    cluster_label = Column(Integer, nullable=False)
+    name = Column(String(200), nullable=True, doc="Generated from top c-TF-IDF keywords")
     description = Column(Text, nullable=True)
+    scope = Column(String(20), nullable=True, index=True, doc="dataset / live")
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
 
-    # ── Cluster Metadata ──────────────────────────────────────────────────
     size = Column(Integer, nullable=False, default=0)
-    representative_text = Column(Text, nullable=True, doc="Most central document text")
+    keywords = Column(JSON, nullable=True)
+    cohesion = Column(Float, nullable=True, doc="Mean cosine similarity of members to centroid")
+    persistence = Column(Float, nullable=True, doc="HDBSCAN cluster persistence (stability)")
+    representative_text = Column(Text, nullable=True)
     representative_texts = Column(Text, nullable=True, doc="JSON array of top-N representative texts")
 
-    # ── Dominant Attributes ───────────────────────────────────────────────
     dominant_scheme = Column(String(100), nullable=True)
     dominant_intent = Column(String(50), nullable=True)
     dominant_gap_type = Column(String(50), nullable=True)
     dominant_state = Column(String(100), nullable=True)
+    gap_signals = Column(Integer, nullable=True)
 
-    # ── Algorithm ─────────────────────────────────────────────────────────
-    algorithm = Column(String(50), nullable=True, doc="hdbscan / kmeans / dbscan / agglomerative")
-    model_version = Column(String(50), nullable=True)
+    algorithm = Column(String(50), nullable=True)
+    model_version = Column(String(80), nullable=True)
     embedding_model = Column(String(100), nullable=True)
-    run_id = Column(String(50), nullable=True, doc="Identifier for this clustering run")
+    run_id = Column(String(50), nullable=True, index=True)
 
-    # ── Timestamps ────────────────────────────────────────────────────────
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
 
-    # ── Relationships ─────────────────────────────────────────────────────
-    document_clusters = relationship("DocumentCluster", back_populates="cluster", lazy="select")
-
-    def __repr__(self):
-        return f"<Cluster(id={self.id}, name={self.name}, size={self.size})>"
+    document_clusters = relationship("DocumentCluster", back_populates="cluster", lazy="select",
+                                     cascade="all, delete-orphan")
 
 
 class DocumentCluster(Base):
-    """Association table linking documents to clusters with similarity scores."""
     __tablename__ = "document_clusters"
 
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False, index=True)
     cluster_id = Column(Integer, ForeignKey("clusters.id"), nullable=False, index=True)
-    similarity_score = Column(Float, nullable=True, doc="Distance/similarity to cluster centroid")
-    is_representative = Column(Integer, nullable=False, default=0, doc="1 if this doc is a cluster representative")
+    similarity_score = Column(Float, nullable=True, doc="Cosine similarity to cluster centroid")
+    membership_probability = Column(Float, nullable=True, doc="HDBSCAN membership strength")
+    is_representative = Column(Integer, nullable=False, default=0)
 
-    # ── Relationships ─────────────────────────────────────────────────────
     cluster = relationship("Cluster", back_populates="document_clusters")
 
     __table_args__ = (

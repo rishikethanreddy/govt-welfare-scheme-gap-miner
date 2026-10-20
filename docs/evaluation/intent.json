@@ -1,0 +1,537 @@
+{
+  "task": "intent",
+  "labels": [
+    "application",
+    "benefits",
+    "complaint",
+    "deadline",
+    "documentation",
+    "eligibility",
+    "general_information",
+    "payment"
+  ],
+  "selected": "ensemble_tfidf_embedding",
+  "uncertainty_threshold": 0.0,
+  "training_records": {
+    "original_en": 106,
+    "translated_hi": 105,
+    "translated_hi_latn": 106,
+    "live_ai": 214
+  },
+  "class_distribution": {
+    "train": {
+      "application": 93,
+      "complaint": 91,
+      "general_information": 89,
+      "eligibility": 67,
+      "documentation": 37,
+      "benefits": 30,
+      "payment": 17,
+      "deadline": 6
+    },
+    "val": {
+      "general_information": 23,
+      "application": 21,
+      "eligibility": 17,
+      "benefits": 14,
+      "documentation": 9,
+      "complaint": 8,
+      "payment": 6,
+      "deadline": 3
+    },
+    "test": {
+      "application": 28,
+      "complaint": 23,
+      "eligibility": 13,
+      "general_information": 12,
+      "documentation": 9,
+      "benefits": 8,
+      "payment": 6,
+      "deadline": 2
+    }
+  },
+  "validation_comparison": {
+    "majority_baseline": {
+      "n": 101,
+      "accuracy": 0.2079,
+      "macro_f1": 0.043,
+      "weighted_f1": 0.0716
+    },
+    "tfidf_logreg": {
+      "n": 101,
+      "accuracy": 0.3663,
+      "macro_f1": 0.2244,
+      "weighted_f1": 0.3373
+    },
+    "embedding_logreg": {
+      "n": 101,
+      "accuracy": 0.3663,
+      "macro_f1": 0.3725,
+      "weighted_f1": 0.3859
+    },
+    "ensemble_tfidf_embedding": {
+      "n": 101,
+      "accuracy": 0.4356,
+      "macro_f1": 0.4459,
+      "weighted_f1": 0.444
+    }
+  },
+  "test": {
+    "n": 101,
+    "accuracy": 0.5842,
+    "macro_precision": 0.4219,
+    "macro_recall": 0.4791,
+    "macro_f1": 0.4345,
+    "weighted_f1": 0.5603,
+    "per_class": {
+      "application": {
+        "precision": 0.6538461538461539,
+        "recall": 0.6071428571428571,
+        "f1-score": 0.6296296296296297,
+        "support": 28.0
+      },
+      "benefits": {
+        "precision": 0.5714285714285714,
+        "recall": 0.5,
+        "f1-score": 0.5333333333333333,
+        "support": 8.0
+      },
+      "complaint": {
+        "precision": 0.8421052631578947,
+        "recall": 0.6956521739130435,
+        "f1-score": 0.7619047619047619,
+        "support": 23.0
+      },
+      "deadline": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 2.0
+      },
+      "documentation": {
+        "precision": 0.4444444444444444,
+        "recall": 0.8888888888888888,
+        "f1-score": 0.5925925925925926,
+        "support": 9.0
+      },
+      "eligibility": {
+        "precision": 0.36363636363636365,
+        "recall": 0.3076923076923077,
+        "f1-score": 0.3333333333333333,
+        "support": 13.0
+      },
+      "general_information": {
+        "precision": 0.5,
+        "recall": 0.8333333333333334,
+        "f1-score": 0.625,
+        "support": 12.0
+      },
+      "payment": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 6.0
+      },
+      "accuracy": 0.5841584158415841,
+      "macro avg": {
+        "precision": 0.4219325995641785,
+        "recall": 0.4790886951213038,
+        "f1-score": 0.4344742063492063,
+        "support": 101.0
+      },
+      "weighted avg": {
+        "precision": 0.5641070758319324,
+        "recall": 0.5841584158415841,
+        "f1-score": 0.5602650741264602,
+        "support": 101.0
+      }
+    },
+    "confusion_matrix": {
+      "labels": [
+        "application",
+        "benefits",
+        "complaint",
+        "deadline",
+        "documentation",
+        "eligibility",
+        "general_information",
+        "payment"
+      ],
+      "matrix": [
+        [
+          17,
+          2,
+          0,
+          0,
+          5,
+          1,
+          3,
+          0
+        ],
+        [
+          1,
+          4,
+          0,
+          0,
+          0,
+          2,
+          1,
+          0
+        ],
+        [
+          3,
+          0,
+          16,
+          0,
+          1,
+          1,
+          2,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          8,
+          0,
+          0,
+          0
+        ],
+        [
+          3,
+          0,
+          1,
+          0,
+          4,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          10,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          3,
+          2,
+          0
+        ]
+      ]
+    }
+  },
+  "test_by_slice": {
+    "original_en": {
+      "n": 21,
+      "accuracy": 0.619,
+      "macro_f1": 0.4333,
+      "weighted_f1": 0.5206
+    },
+    "translated_hi": {
+      "n": 21,
+      "accuracy": 0.4762,
+      "macro_f1": 0.3339,
+      "weighted_f1": 0.3941
+    },
+    "translated_hi_latn": {
+      "n": 21,
+      "accuracy": 0.5714,
+      "macro_f1": 0.4172,
+      "weighted_f1": 0.543
+    },
+    "live_ai": {
+      "n": 38,
+      "accuracy": 0.6316,
+      "macro_f1": 0.2837,
+      "weighted_f1": 0.5695
+    }
+  },
+  "test_baseline": {
+    "n": 101,
+    "accuracy": 0.2772,
+    "macro_f1": 0.0543,
+    "weighted_f1": 0.1203
+  },
+  "grouped_cv": {
+    "folds": 5,
+    "grouping": "record (with its translations) / source page",
+    "macro_f1_mean": 0.3444,
+    "macro_f1_std": 0.0998,
+    "accuracy_mean": 0.434
+  },
+  "errors": [
+    {
+      "text": "Our installment was credited this cycle in Samba district, do we need to reapply for the next one?",
+      "slice": "original_en",
+      "true": "application",
+      "pred": "documentation"
+    },
+    {
+      "text": "My 13th installment hasn't come, who exactly do I email or call about it?",
+      "slice": "original_en",
+      "true": "payment",
+      "pred": "general_information"
+    },
+    {
+      "text": "I heard my district only got a couple hundred solar pump slots this year even though the national target is huge, is that true and how do I make sure I'm on the list?",
+      "slice": "original_en",
+      "true": "eligibility",
+      "pred": "documentation"
+    },
+    {
+      "text": "How do I even apply for a new MGNREGA job card if I've never had one before?",
+      "slice": "original_en",
+      "true": "application",
+      "pred": "documentation"
+    },
+    {
+      "text": "Which Mudra category should I apply under if I need about Rs 3 lakh for my shop, Kishor or Tarun?",
+      "slice": "original_en",
+      "true": "application",
+      "pred": "benefits"
+    },
+    {
+      "text": "If my auto-debit fails because my account was short by a small amount, does my APY account get frozen immediately or is there a grace period?",
+      "slice": "original_en",
+      "true": "payment",
+      "pred": "eligibility"
+    },
+    {
+      "text": "Women reportedly make up 68% of all Mudra borrowers nationally, is there a separate application category for women or is it the same form as everyone else?",
+      "slice": "original_en",
+      "true": "application",
+      "pred": "general_information"
+    },
+    {
+      "text": "The scheme has now been extended and restructured to cover 1.15 crore vendors including 50 lakh new ones, does that mean vendors who were rejected before automatically get reconsidered under the new round?",
+      "slice": "original_en",
+      "true": "eligibility",
+      "pred": "documentation"
+    },
+    {
+      "text": "सांबा जिले में इस बार हमारी किस्त आ गई, क्या अगली किस्त के लिए हमें फिर से आवेदन करना होगा?",
+      "slice": "translated_hi",
+      "true": "application",
+      "pred": "documentation"
+    },
+    {
+      "text": "मेरी 13वीं किस्त नहीं आई, इसके लिए किसे ईमेल या फोन करना है?",
+      "slice": "translated_hi",
+      "true": "payment",
+      "pred": "complaint"
+    },
+    {
+      "text": "सुना है राष्ट्रीय लक्ष्य बड़ा होने के बावजूद हमारे जिले को इस साल सिर्फ कुछ सौ सोलर पंप मिले हैं, क्या यह सच है और मैं सूची में अपना नाम कैसे पक्का करूं?",
+      "slice": "translated_hi",
+      "true": "eligibility",
+      "pred": "documentation"
+    },
+    {
+      "text": "पीएमएवाई-जी में किस्तों का बंटवारा कैसे होता है, सारा पैसा एक साथ मिलता है या घर बनने के साथ हिस्सों में?",
+      "slice": "translated_hi",
+      "true": "benefits",
+      "pred": "eligibility"
+    },
+    {
+      "text": "ब्लॉक कार्यालय का कंप्यूटर ऑपरेटर कह रहा है कि सारे गांवों के जॉब कार्ड से आधार वही अकेला जोड़ रहा है, क्या सच में ऐसा ही होना चाहिए या ब्लॉक में कर्मचारी कम हैं?",
+      "slice": "translated_hi",
+      "true": "complaint",
+      "pred": "documentation"
+    },
+    {
+      "text": "अगर पहले कभी जॉब कार्ड नहीं बना तो नया मनरेगा जॉब कार्ड बनवाने के लिए आवेदन कैसे करें?",
+      "slice": "translated_hi",
+      "true": "application",
+      "pred": "documentation"
+    },
+    {
+      "text": "दुकान के लिए लगभग 3 लाख रुपये चाहिए तो मुद्रा की कौन सी श्रेणी में आवेदन करूं, किशोर या तरुण?",
+      "slice": "translated_hi",
+      "true": "application",
+      "pred": "benefits"
+    },
+    {
+      "text": "हमारे गांव के 87 साल के पेंशनभोगी को अप्रैल से पेंशन नहीं मिली और वे रोज पंचायत और बैंक के चक्कर लगा रहे हैं, चलती हुई एनएसएपी पेंशन अचानक महीनों के लिए क्यों रुक जाती है?",
+      "slice": "translated_hi",
+      "true": "complaint",
+      "pred": "general_information"
+    },
+    {
+      "text": "अगर खाते में थोड़े पैसे कम होने से ऑटो-डेबिट फेल हो जाए तो क्या एपीवाई खाता तुरंत बंद हो जाता है या कुछ मोहलत मिलती है?",
+      "slice": "translated_hi",
+      "true": "payment",
+      "pred": "eligibility"
+    },
+    {
+      "text": "सुना है देश में मुद्रा लोन लेने वालों में 68% महिलाएं हैं, क्या महिलाओं के लिए अलग श्रेणी है या सबके लिए एक ही फॉर्म है?",
+      "slice": "translated_hi",
+      "true": "application",
+      "pred": "general_information"
+    },
+    {
+      "text": "योजना बढ़ा दी गई है और अब 1.15 करोड़ विक्रेताओं को कवर करेगी जिनमें 50 लाख नए हैं, क्या पहले खारिज हुए विक्रेताओं पर अपने आप दोबारा विचार होगा?",
+      "slice": "translated_hi",
+      "true": "eligibility",
+      "pred": "general_information"
+    },
+    {
+      "text": "Meri 13vi kist nahi aayi, iske liye kisko email ya phone karna hai?",
+      "slice": "translated_hi_latn",
+      "true": "payment",
+      "pred": "general_information"
+    },
+    {
+      "text": "Suna hai hamare rajya ki saari PMFBY shikayate nipat gayi, kya iska matlab hai ki ab har jagah claim 21 din me mil raha hai?",
+      "slice": "translated_hi_latn",
+      "true": "general_information",
+      "pred": "benefits"
+    },
+    {
+      "text": "Suna hai rashtriya lakshya bada hone ke bawajood hamare jile ko is saal sirf kuch sau solar pump mile hai, kya ye sach hai aur main list me apna naam kaise pakka karu?",
+      "slice": "translated_hi_latn",
+      "true": "eligibility",
+      "pred": "application"
+    },
+    {
+      "text": "PMAY-G me kist ka batwara kaise hota hai, saara paisa ek saath milta hai ya ghar banne ke saath hisso me?",
+      "slice": "translated_hi_latn",
+      "true": "benefits",
+      "pred": "eligibility"
+    },
+    {
+      "text": "Meri application baar baar reject ho rahi hai, kya main asal me yogya nahi hu ya kagzo me mismatch ki wajah se?",
+      "slice": "translated_hi_latn",
+      "true": "documentation",
+      "pred": "complaint"
+    },
+    {
+      "text": "Agar pehle kabhi job card nahi bana to naya MGNREGA job card banwane ke liye apply kaise kare?",
+      "slice": "translated_hi_latn",
+      "true": "application",
+      "pred": "documentation"
+    },
+    {
+      "text": "Agar khate me thode paise kam hone se auto-debit fail ho jaye to kya APY khata turant band ho jata hai ya kuch mohlat milti hai?",
+      "slice": "translated_hi_latn",
+      "true": "payment",
+      "pred": "eligibility"
+    },
+    {
+      "text": "Suna hai desh me Mudra loan lene walo me 68% mahilaye hai, kya mahilao ke liye alag shreni hai ya sabke liye ek hi form hai?",
+      "slice": "translated_hi_latn",
+      "true": "application",
+      "pred": "eligibility"
+    },
+    {
+      "text": "Yojana badha di gayi hai aur ab 1.15 crore vendors ko cover karegi jisme 50 lakh naye hai, kya pehle reject hue vendors par apne aap dobara vichaar hoga?",
+      "slice": "translated_hi_latn",
+      "true": "eligibility",
+      "pred": "documentation"
+    },
+    {
+      "text": "Bhilwara me UIT housing scheme rule kiya h",
+      "slice": "live_ai",
+      "true": "eligibility",
+      "pred": "application"
+    },
+    {
+      "text": "You can apply for Pradhan Mantri Awas Yojana to get your own house as per your category.",
+      "slice": "live_ai",
+      "true": "general_information",
+      "pred": "application"
+    },
+    {
+      "text": "Kiya meri koi help karega mera sundar bhavish banane me ya ye sari yojana aamiro ki chaokhat chumne k liye Bani he , agar garibo k liye ye yojana Bani he to hamari help kare . Shyam Babu 198a/1 Sahab Nagar Kalyanpur Kanpur-[PIN] U. P. PH.no.[PHONE]",
+      "slice": "live_ai",
+      "true": "complaint",
+      "pred": "application"
+    },
+    {
+      "text": "Mangesh sir is right.....main bhi bank gyi but bank ne saaf inkar kr dia....mujhr to bahit ho zrurat h but phir bh nh mol pa ra h kya kru.",
+      "slice": "live_ai",
+      "true": "complaint",
+      "pred": "general_information"
+    },
+    {
+      "text": "Were is the form shows online pradhan Mantri havas yujana by. Click it's not showing his website",
+      "slice": "live_ai",
+      "true": "application",
+      "pred": "general_information"
+    },
+    {
+      "text": "sir ,,,,nomoskar sobko ghore mil raha hai lekin mera papa ko nhi mil raha sir exsuali haam log bohut gorib hoon koi sarkari subiday nhi milta hai sir ,,,,mera papa ka naam,,,madan das villeg,,choto kolia dist-dhubri(assam) post office- fakirganj police station- fakirganj pin no.[PIN] house no.47 pls pls pls help sir",
+      "slice": "live_ai",
+      "true": "complaint",
+      "pred": "application"
+    },
+    {
+      "text": "prime minister schme ke liya kam se kam kita rupees ka flat milage AUR USKO HE AGE BHASIVAY ME SALE KAR SAKHE HE KI NAHI AUR USKI INTEREST & KIST KITNI BANGI KITNE SAL KE LIYE LEKAR HUM USKO KIRYE PAR DE SAKHE HE YA NAHI HUMKO JAGAH KAHA MILAGI DELHI AUR AUP KAHA PHAR",
+      "slice": "live_ai",
+      "true": "benefits",
+      "pred": "application"
+    },
+    {
+      "text": "Pradhan mantri abas yojana mere yaha kab lagu hogi mainpri uttar pradesh",
+      "slice": "live_ai",
+      "true": "deadline",
+      "pred": "application"
+    },
+    {
+      "text": "sir ji aap jo bhi yojna chalate uska kewal dikhawa hota kyoki ke bank par jakar loan ki baat karta hu to baithe ke liye tak nahi kaha jata",
+      "slice": "live_ai",
+      "true": "complaint",
+      "pred": "eligibility"
+    },
+    {
+      "text": "सरजी, मैं प्राइवेट नौकरी करता हूं मेरी एक ऑंख दुर्धटना में चली गयी थी, अब मैं सिर्फ एक ही आंख से काम करता हूं मैंने दिनांक 4 अप्रैल 2016 में सेंटल बैंक ऑफ इंडिया शाखा खैरी ब्रांच जिला बालाघाट म.प्र. [PIN] से होम लोन राशि 14,25,000/ लिया था. महोदय जी क्या मुझे प्रधानमंत्री आवास योजना का लाभ मिलेगा या नही. मैंने इस योजना के िवषय में शाखा प्रबंधक से इस योजना के संबंध में जानकारी चाही तो उनका कहना है कि मुझे इसकी जानकारी नही है कि इसका लाभ किसे और कैसे दिया जायेगा. मेरी होम लोन की किश्त मासिक विधिवत रूप से समय पर जमा हो रही है. मैंने इस विषय में आनलाइन सर्कुलर देखा जिसमें यह घोषणा जून 2015 से लागू होगी पर ऐसी कोई जानकारी बैंक में तथा बैंक के अन्य अधिकारियों को नही है. अतः महोदय जी से निवेदन है कि मुझे इस योजना का लाभ िमलेगा या नही और ब्याज तथा अन्य सबसिडी मिलेगी या नहीं. कृपया मैं इस योजना के लिये कहां और कैसे अावेदन करूं इसकी जानकारी दी जाये. मैं आर्थिक रूप से बहुत कमजोर हूं जैसे तैसे मकान की किश्त पटा रहा हूं. कृपया मुझे जानकारी दी जाये ताकि मैं इसका लाभ उठा सकूं. धन्यवाद. वीरेंद्र कुमार साहू पिता श्री टूमचंद साहू",
+      "slice": "live_ai",
+      "true": "eligibility",
+      "pred": "complaint"
+    },
+    {
+      "text": "What is the last date of Pradhan Mantri Awas Yojana?",
+      "slice": "live_ai",
+      "true": "deadline",
+      "pred": "general_information"
+    },
+    {
+      "text": "Do AyushmanBharat covers Cataract surgery ? Pradhan Mantri Jan Arogya Yojana (PM-JAY) covers Cataract surgery ?",
+      "slice": "live_ai",
+      "true": "benefits",
+      "pred": "general_information"
+    },
+    {
+      "text": "ayushman bhart me dusre ke rashan me kisi our ka name khul raha hai. kya yahi ayushman bhart hai .",
+      "slice": "live_ai",
+      "true": "complaint",
+      "pred": "application"
+    },
+    {
+      "text": "Pl check my name in Ayushman Bharat Yojna Name : Bipin Father name : Shankarlal other Name : Manguben Mobile No : [PHONE] , Pin [PIN]",
+      "slice": "live_ai",
+      "true": "eligibility",
+      "pred": "application"
+    }
+  ]
+}

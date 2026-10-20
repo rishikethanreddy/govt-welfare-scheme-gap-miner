@@ -1,13 +1,23 @@
 {
   "name": "welfare-awareness-gap-miner",
   "version": "1.0.0",
-  "description": "Root orchestration for Government Welfare Scheme Gap Analysis & NLP Mining Platform",
+  "private": true,
+  "description": "Government Welfare Scheme Awareness Gap Miner — collection, NLP and analytics platform",
   "scripts": {
-    "dev": "concurrently -k -p \"[{name}]\" -n \"UI,API,WRK\" -c \"cyan.bold,green.bold,magenta.bold\" \"npm run dev:frontend\" \"npm run dev:backend\" \"npm run dev:worker\"",
+    "setup": "node scripts/run-python.js -m pip install -r requirements.txt && npm --prefix frontend install && npm run db:migrate && npm run seed",
+    "db:migrate": "node scripts/run-python.js -m alembic upgrade head",
+    "seed": "node scripts/run-python.js -m backend.app.seed",
+    "train": "node scripts/run-python.js -m backend.app.nlp.training",
+    "reprocess": "node scripts/run-python.js -m backend.app.maintenance reprocess",
+    "backup": "node scripts/run-python.js -m backend.app.maintenance backup",
+    "dev": "npm run db:migrate && concurrently -k -p \"[{name}]\" -n \"UI,API,WRK\" -c \"cyan.bold,green.bold,magenta.bold\" \"npm run dev:frontend\" \"npm run dev:backend\" \"npm run dev:worker\"",
     "dev:frontend": "npm --prefix frontend run dev",
-    "dev:backend": "node scripts/run-python.js -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload",
+    "dev:backend": "node scripts/run-python.js -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir backend",
     "dev:worker": "node scripts/run-python.js -m backend.worker",
-    "seed": "node scripts/run-python.js -m backend.app.seed"
+    "start:backend": "node scripts/run-python.js -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000",
+    "test": "node scripts/run-python.js -m pytest -q",
+    "test:frontend": "npm --prefix frontend run lint && npm --prefix frontend run typecheck && npm --prefix frontend run build",
+    "check": "npm test && npm run test:frontend"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

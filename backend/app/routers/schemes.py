@@ -1,133 +1,61 @@
-"""
-Schemes API — scheme registry and intelligence.
-"""
+"""Schemes API — the configurable scheme registry and per-scheme intelligence."""
 
-from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case, desc, distinct
 
 from backend.app.database import get_db
-from backend.app.models.scheme import Scheme
 from backend.app.models.document import Document
-from backend.app.schemas.scheme import SchemeResponse, SchemeIntelligenceResponse
+from backend.app.models.scheme import Scheme
+from backend.app.nlp.schemes import DEFAULT_SCHEMES
+from backend.app.routers.deps import filters
+from backend.app.services.analytics import AnalyticsService, Filters, apply_filters
 
 router = APIRouter(prefix="/api/schemes", tags=["Schemes"])
 
 
-@router.get("", response_model=list[SchemeResponse])
+@router.get("")
 def list_schemes(db: Session = Depends(get_db)):
-    """List all registered welfare schemes."""
-    schemes = db.query(Scheme).filter(Scheme.active == True).order_by(Scheme.display_order, Scheme.name).all()
-
-    if not schemes:
-        # Fallback: get distinct scheme names from documents
-        scheme_names = (
-            db.query(distinct(Document.scheme_name))
-            .filter(Document.scheme_name != None)
-            .order_by(Document.scheme_name)
-            .all()
-        )
-        return [
-            {"id": i, "name": name, "short_name": name, "active": True}
-            for i, (name,) in enumerate(scheme_names, 1)
-        ]
-
-    return [SchemeResponse.model_validate(s) for s in schemes]
+    rows = {s.short_name: s for s in db.query(Scheme).all()}
+    out = []
+    for d in DEFAULT_SCHEMES:
+        r = rows.get(d.code)
+        out.append({"code": d.code, "name": d.name, "category": d.category, "ministry": d.ministry,
+                    "official_url": d.official_url, "aliases": list(d.strong), "weak_aliases": list(d.weak),
+                    "extra_aliases": r.alias_list if r else [], "active": r.active if r else True})
+    return out
 
 
-@router.get("/{scheme_id}")
-def get_scheme_intelligence(
-    scheme_id: str,
-    db: Session = Depends(get_db),
-):
-    """
-    Scheme intelligence page — detailed analysis for a single scheme.
-    Accepts either numeric ID or scheme name.
-    """
-    # Try to find by ID first, then by name
-    scheme_name = scheme_id
-    scheme_obj = None
+@router.get("/{code}")
+def scheme_detail(code: str, f: Filters = Depends(filters), db: Session = Depends(get_db)):
+    defn = next((d for d in DEFAULT_SCHEMES if d.code == code), None)
+    if defn is None:
+        raise HTTPException(404, "Unknown scheme code")
+    f = f.model_copy(update={"scheme": code})
+    svc = AnalyticsService(db)
+    q = apply_filters(db.query(Document), f)
+    D = Document
+    examples = {}
+    for label in ("yes", "unclear", "no"):
+        examples[label] = [{"id": d.id, "text": d.original_text, "gap_type": d.gap_type, "intent": d.intent,
+                            "source_name": d.source_name, "source_published_at": d.source_published_at}
+                           for d in q.filter(D.awareness_gap == label).order_by(D.gap_confidence.desc()).limit(8)]
+    misconceptions = [{"id": d.id, "text": d.original_text}
+                      for d in q.filter(D.gap_type == "misconception").limit(8)]
+    return {"scheme": {"code": defn.code, "name": defn.name, "category": defn.category, "ministry": defn.ministry,
+                       "official_url": defn.official_url, "aliases": list(defn.strong)},
+            "overview": svc.overview(f),
+            "intents": svc.distribution(f, "intent"),
+            "gap_types": svc.distribution(f.model_copy(update={"awareness_gap": "yes"}), "gap_type"),
+            "states": svc.gap_breakdown(f, "state", limit=15),
+            "co_mentioned": _co_mentions(db, f, code),
+            "examples": examples, "misconceptions": misconceptions}
 
-    try:
-        sid = int(scheme_id)
-        scheme_obj = db.query(Scheme).filter(Scheme.id == sid).first()
-        if scheme_obj:
-            scheme_name = scheme_obj.short_name or scheme_obj.name
-    except ValueError:
-        scheme_obj = db.query(Scheme).filter(
-            (Scheme.short_name == scheme_id) | (Scheme.name == scheme_id)
-        ).first()
-        if scheme_obj:
-            scheme_name = scheme_obj.short_name or scheme_obj.name
 
-    # Get document metrics for this scheme
-    base = db.query(Document).filter(Document.scheme_name == scheme_name)
-    total = base.count()
-
-    if total == 0:
-        raise HTTPException(status_code=404, detail=f"No data found for scheme: {scheme_name}")
-
-    gap_signals = base.filter(func.lower(Document.awareness_gap) == "yes").count()
-
-    # Top intents
-    top_intents = (
-        base.with_entities(Document.intent, func.count(Document.id).label("count"))
-        .group_by(Document.intent)
-        .order_by(desc("count"))
-        .limit(5)
-        .all()
-    )
-
-    # Top gap types
-    top_gaps = (
-        base.filter(Document.gap_type != None, Document.gap_type != "none")
-        .with_entities(Document.gap_type, func.count(Document.id).label("count"))
-        .group_by(Document.gap_type)
-        .order_by(desc("count"))
-        .limit(5)
-        .all()
-    )
-
-    # Top states
-    top_states = (
-        base.filter(Document.state != None, Document.state != "Unknown")
-        .with_entities(Document.state, func.count(Document.id).label("count"))
-        .group_by(Document.state)
-        .order_by(desc("count"))
-        .limit(5)
-        .all()
-    )
-
-    # Recurring questions (actual data, not fabricated)
-    recurring = (
-        base.filter(func.lower(Document.awareness_gap) == "yes")
-        .with_entities(Document.original_text, Document.gap_type)
-        .limit(10)
-        .all()
-    )
-
-    # Misconceptions
-    misconceptions = (
-        base.filter(Document.gap_type == "misconception")
-        .with_entities(Document.original_text)
-        .limit(5)
-        .all()
-    )
-
-    return {
-        "scheme": {
-            "id": scheme_obj.id if scheme_obj else 0,
-            "name": scheme_name,
-            "short_name": scheme_name,
-            "active": True,
-        },
-        "total_records": total,
-        "awareness_gap_signals": gap_signals,
-        "gap_rate": round(gap_signals / total * 100, 2) if total > 0 else 0.0,
-        "top_intents": [{"intent": r[0], "count": r[1]} for r in top_intents],
-        "top_gap_types": [{"gap_type": r[0], "count": r[1]} for r in top_gaps],
-        "top_states": [{"state": r[0], "count": r[1]} for r in top_states],
-        "recurring_questions": [{"text": r[0], "gap_type": r[1]} for r in recurring],
-        "misconceptions": [{"text": r[0]} for r in misconceptions],
-    }
+def _co_mentions(db: Session, f: Filters, code: str) -> list[dict]:
+    from collections import Counter
+    c = Counter()
+    for (schemes,) in apply_filters(db.query(Document.schemes), f).filter(Document.schemes.isnot(None)).all():
+        for s in schemes or []:
+            if s != code:
+                c[s] += 1
+    return [{"scheme": s, "count": n} for s, n in c.most_common(8)]

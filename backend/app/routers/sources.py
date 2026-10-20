@@ -1,162 +1,157 @@
-"""
-Sources API — source management, scraping execution, run history.
-"""
+"""Sources API — registry, freshness/health, run history, and operator controls."""
 
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.app.collection.registry import sync_registry
+from backend.app.collection.robots import RobotsPolicy
+from backend.app.collection.safe_http import FetchError, SafeFetcher, UnsafeUrlError, UrlPolicy
+from backend.app.config import get_settings
 from backend.app.database import get_db
+from backend.app.models.audit import AuditLog
+from backend.app.models.coltypes import utcnow
+from backend.app.models.document import Document
 from backend.app.models.source import Source, SourceRun
-from backend.app.services.orchestrator import ScrapingOrchestrator
+from backend.app.security import require_admin
 
 router = APIRouter(prefix="/api/sources", tags=["Sources"])
 
+ADAPTERS = ("html", "rss", "sitemap", "json_api", "csv", "datagovin")
+
+
+def _source(s: Source, docs: int = 0) -> dict:
+    age_h = round((utcnow() - s.last_success_at).total_seconds() / 3600, 1) if s.last_success_at else None
+    return {"id": s.id, "name": s.name, "url": s.url, "source_type": s.source_type, "category": s.category,
+            "adapter": s.content_type, "config": s.config or {}, "policy_status": s.policy_status,
+            "policy_note": s.policy_note, "active": s.active, "schedule": s.schedule, "max_pages": s.max_pages,
+            "verification_status": s.verification_status, "last_run_at": s.last_run_at,
+            "last_success_at": s.last_success_at, "hours_since_success": age_h, "last_error": s.last_error,
+            "consecutive_failures": s.consecutive_failures, "health_score": s.health_score,
+            "total_runs": s.total_runs, "records_collected": docs, "crawl_delay": s.crawl_delay}
+
 
 @router.get("")
-def list_sources(db: Session = Depends(get_db)):
-    """List all registered data sources."""
-    sources = db.query(Source).order_by(Source.name).all()
-    return [
-        {
-            "id": s.id,
-            "name": s.name,
-            "url": s.url,
-            "source_type": s.source_type,
-            "collection_method": s.collection_method,
-            "scraper_type": s.content_type,
-            "schedule": s.schedule,
-            "robots_checked": s.robots_checked,
-            "policy_status": s.policy_status,
-            "crawl_delay": s.crawl_delay,
-            "active": s.active,
-            "total_records_collected": s.total_records_collected or 0,
-            "total_runs": s.total_runs or 0,
-            "last_collected_at": s.last_success_at,
-        }
-        for s in sources
-    ]
-
-
-@router.post("/register")
-def register_source(
-    name: str = Query(...),
-    url: str = Query(...),
-    source_type: str = Query("web"),
-    scraper_type: str = Query("html", alias="scraper_type"),
-    db: Session = Depends(get_db),
-):
-    """Register a new data source with automatic robots.txt check."""
-    orch = ScrapingOrchestrator(db)
-    source = orch.register_source(name, url, source_type, scraper_type)
-    return {
-        "id": source.id,
-        "name": source.name,
-        "policy_status": source.policy_status,
-        "active": source.active,
-    }
-
-
-@router.post("/register-defaults")
-def register_default_sources(db: Session = Depends(get_db)):
-    """Register all pre-configured welfare scheme sources."""
-    orch = ScrapingOrchestrator(db)
-    sources = orch.register_default_sources()
-    return {
-        "registered": len(sources),
-        "sources": [{"id": s.id, "name": s.name, "policy_status": s.policy_status} for s in sources],
-    }
-
-
-@router.post("/{source_id}/scrape")
-def run_scrape(
-    source_id: int,
-    max_records: int = Query(50, ge=1, le=500),
-    db: Session = Depends(get_db),
-):
-    """Trigger a scraping run for a specific source."""
-    orch = ScrapingOrchestrator(db)
-    result = orch.run_scrape(source_id, max_records=max_records)
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-
-@router.post("/scrape-all")
-def run_all_sources(
-    max_records: int = Query(50, ge=1, le=200),
-    db: Session = Depends(get_db),
-):
-    """Trigger scraping for all active sources."""
-    orch = ScrapingOrchestrator(db)
-    results = orch.run_all_sources(max_records_per_source=max_records)
-    return {
-        "sources_scraped": len(results),
-        "results": results,
-    }
+def list_sources(include_retired: bool = False, db: Session = Depends(get_db)):
+    q = db.query(Source).filter(Source.source_type != "csv_upload")
+    if not include_retired:
+        q = q.filter(Source.policy_status != "retired")
+    counts = dict(db.query(Document.source_id, func.count(Document.id))
+                  .filter(Document.origin == "live", Document.is_duplicate == False, Document.is_demo == False)  # noqa: E712
+                  .group_by(Document.source_id).all())
+    return [_source(s, counts.get(s.id, 0)) for s in q.order_by(Source.active.desc(), Source.name).all()]
 
 
 @router.get("/{source_id}")
 def get_source(source_id: int, db: Session = Depends(get_db)):
-    """Get source details."""
-    source = db.query(Source).filter(Source.id == source_id).first()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-    return {
-        "id": source.id,
-        "name": source.name,
-        "url": source.url,
-        "source_type": source.source_type,
-        "collection_method": source.collection_method,
-        "scraper_type": source.content_type,
-        "policy_status": source.policy_status,
-        "robots_checked": source.robots_checked,
-        "crawl_delay": source.crawl_delay,
-        "active": source.active,
-        "total_records_collected": source.total_records_collected or 0,
-        "total_runs": source.total_runs or 0,
-        "last_collected_at": source.last_success_at,
-    }
+    s = db.get(Source, source_id)
+    if s is None:
+        raise HTTPException(404, "Source not found")
+    docs = db.query(func.count(Document.id)).filter(Document.source_id == s.id, Document.is_duplicate == False).scalar()  # noqa: E712
+    return _source(s, docs or 0)
 
 
 @router.get("/{source_id}/runs")
-def get_source_runs(source_id: int, db: Session = Depends(get_db)):
-    """Get scraping run history for a source."""
-    orch = ScrapingOrchestrator(db)
-    runs = orch.get_source_runs(source_id)
-    return [
-        {
-            "id": r.id,
-            "status": r.status,
-            "started_at": r.started_at,
-            "finished_at": r.finished_at,
-            "urls_discovered": r.urls_discovered,
-            "records_extracted": r.records_extracted,
-            "records_stored": r.records_accepted,
-            "records_duplicate": r.duplicates_found,
-            "records_rejected": r.records_rejected,
-            "error": r.error_message,
-        }
-        for r in runs
-    ]
+def source_runs(source_id: int, limit: int = 20, db: Session = Depends(get_db)):
+    runs = db.query(SourceRun).filter(SourceRun.source_id == source_id).order_by(SourceRun.id.desc()).limit(min(limit, 100))
+    return [{"id": r.id, "campaign_id": r.campaign_id, "status": r.status, "started_at": r.started_at,
+             "finished_at": r.finished_at, "urls_discovered": r.urls_discovered, "urls_attempted": r.urls_attempted,
+             "successful": r.successful, "failed": r.failed, "blocked": r.blocked,
+             "records_extracted": r.records_extracted, "records_accepted": r.records_accepted,
+             "duplicates": r.duplicates_found, "rejected": r.records_rejected, "error": r.error_message} for r in runs]
 
 
-@router.post("/{source_id}/recheck-policy")
-def recheck_policy(source_id: int, db: Session = Depends(get_db)):
-    """Re-check robots.txt policy for a source."""
-    orch = ScrapingOrchestrator(db)
-    result = orch.recheck_policy(source_id)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
-    return result
+class SourceCreate(BaseModel):
+    name: str = Field(..., min_length=3, max_length=200)
+    url: str = Field(..., max_length=2048)
+    adapter: str = Field("html")
+    source_type: str = Field("other", max_length=50)
+    category: Optional[str] = Field(None, max_length=50)
+    max_pages: int = Field(20, ge=1, le=500)
+    config: dict = Field(default_factory=dict)
 
 
-@router.patch("/{source_id}/toggle")
-def toggle_source(source_id: int, db: Session = Depends(get_db)):
-    """Enable/disable a source."""
-    source = db.query(Source).filter(Source.id == source_id).first()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-    source.active = not source.active
+class SourceUpdate(BaseModel):
+    active: Optional[bool] = None
+    schedule: Optional[str] = Field(None, pattern="^(manual|daily|weekly)$")
+    max_pages: Optional[int] = Field(None, ge=1, le=500)
+    config: Optional[dict] = None
+
+
+def _check_robots(url: str) -> tuple[bool, str]:
+    robots = RobotsPolicy(get_settings().SCRAPER_USER_AGENT)
+    with SafeFetcher(robots=None, max_retries=0) as f:
+        d = robots.check(url, f)
+    return d.allowed, d.reason
+
+
+@router.post("")
+def create_source(body: SourceCreate, db: Session = Depends(get_db), who: str = Depends(require_admin)):
+    if body.adapter not in ADAPTERS:
+        raise HTTPException(422, f"adapter must be one of {ADAPTERS}")
+    try:
+        UrlPolicy().check(body.url)
+    except UnsafeUrlError as e:
+        raise HTTPException(422, f"URL rejected: {e}")
+    except FetchError as e:
+        raise HTTPException(422, f"URL could not be resolved: {e}")
+    if db.query(Source.id).filter(Source.url == body.url).first():
+        raise HTTPException(409, "A source with this URL is already registered")
+    allowed, reason = _check_robots(body.url)
+    s = Source(name=body.name, url=body.url, content_type=body.adapter, source_type=body.source_type,
+               category=body.category, max_pages=body.max_pages, config=body.config,
+               collection_method="crawler", robots_checked=True, robots_allowed=allowed,
+               # New sources start inactive; the operator enables them after reviewing the site's terms.
+               policy_status="manual_review" if allowed else "blocked", active=False,
+               policy_note=f"Registered by operator. {reason}. Review the site's terms of use before enabling.")
+    db.add(s)
+    db.add(AuditLog(action="source_created", entity_type="source", entity_id=body.url[:50], user=who,
+                    description=f"Registered source {body.name}"))
     db.commit()
-    return {"id": source.id, "active": source.active}
+    return _source(s)
+
+
+@router.patch("/{source_id}")
+def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_db), who: str = Depends(require_admin)):
+    s = db.get(Source, source_id)
+    if s is None:
+        raise HTTPException(404, "Source not found")
+    if body.active is True and s.policy_status in ("blocked", "unsupported", "credentials_required", "retired"):
+        raise HTTPException(409, f"Source cannot be enabled while its policy status is '{s.policy_status}'.")
+    changes = body.model_dump(exclude_none=True)
+    if body.active is True and s.policy_status in ("paused", "manual_review"):
+        s.policy_status, s.consecutive_failures = "allowed", 0
+    for k, v in changes.items():
+        setattr(s, k, v)
+    db.add(AuditLog(action="source_updated", entity_type="source", entity_id=str(s.id), user=who,
+                    description=f"Updated {s.name}: {', '.join(changes)}"))
+    db.commit()
+    return _source(s)
+
+
+@router.post("/sync")
+def sync_sources(db: Session = Depends(get_db), _: str = Depends(require_admin)):
+    return sync_registry(db)
+
+
+@router.post("/{source_id}/check")
+def check_source(source_id: int, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+    """One polite request to the source URL: reports robots decision, HTTP status and content type."""
+    s = db.get(Source, source_id)
+    if s is None:
+        raise HTTPException(404, "Source not found")
+    robots = RobotsPolicy(get_settings().SCRAPER_USER_AGENT)
+    with SafeFetcher(robots=robots, max_retries=0) as f:
+        try:
+            res = f.fetch(s.url)
+            out = {"ok": res.ok, "status": res.status, "content_type": res.content_type,
+                   "bytes": len(res.content), "final_url": res.final_url, "redirects": res.redirects}
+        except FetchError as e:
+            out = {"ok": False, "error_kind": e.kind, "error": str(e), "status": e.status}
+    s.robots_checked = True
+    s.last_error = None if out["ok"] else out.get("error") or f"HTTP {out.get('status')}"
+    db.commit()
+    return out

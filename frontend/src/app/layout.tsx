@@ -1,25 +1,26 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { ThemeProvider } from "next-themes";
+import AppShell from "@/components/AppShell";
+import { OperatorProvider } from "@/components/OperatorAccess";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
+const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Welfare Awareness Gap Miner — Government Scheme Intelligence",
-  description: "An analytical platform for mining public awareness gaps in Indian government welfare schemes using NLP. Academic research prototype.",
+  title: { default: "Awareness Gap Miner", template: "%s · Awareness Gap Miner" },
+  description:
+    "Collects public text about Indian government welfare schemes and surfaces recurring awareness-gap signals with traceable NLP.",
 };
-
-import { ThemeProvider } from "@/components/ThemeProvider";
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${inter.variable}`}>
-      <body className="min-h-screen bg-background text-foreground font-sans antialiased">
-        <ThemeProvider defaultTheme="dark" enableSystem={true}>
-          {children}
+    <html lang="en" suppressHydrationWarning className={inter.variable}>
+      <body className="min-h-screen font-sans">
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <OperatorProvider>
+            <AppShell>{children}</AppShell>
+          </OperatorProvider>
         </ThemeProvider>
       </body>
     </html>

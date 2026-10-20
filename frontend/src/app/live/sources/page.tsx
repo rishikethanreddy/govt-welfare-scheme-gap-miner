@@ -1,194 +1,122 @@
 "use client";
-import React, { useEffect, useState } from "react";
-import AppShell from "@/components/AppShell";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+import React, { useState } from "react";
+import { StatusBadge, Timestamp } from "@/components/labels";
+import { OperatorOnly } from "@/components/OperatorAccess";
+import { Badge, Button, Card, Checkbox, Dialog, ErrorState, Field, Input, LoadingBlock, Notice, PageHeader, Select, Table, Td, Th } from "@/components/ui";
 import { api } from "@/lib/api";
-import { Globe, Play, ToggleLeft, ToggleRight, CheckCircle, AlertTriangle, RefreshCw, Loader2 } from "lucide-react";
+import { label, num } from "@/lib/format";
+import { useApi } from "@/lib/hooks";
 
-export default function LiveSourcesPage() {
-  const [sources, setSources] = useState<any[]>([]);
-  const [registry, setRegistry] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [registering, setRegistering] = useState(false);
-  const [scraping, setScraping] = useState<number | null>(null);
+interface Source { id: number; name: string; url: string; source_type: string; category: string | null; adapter: string;
+  policy_status: string; policy_note: string | null; active: boolean; schedule: string; max_pages: number | null;
+  verification_status: string; last_run_at: string | null; last_success_at: string | null; hours_since_success: number | null;
+  last_error: string | null; consecutive_failures: number; health_score: number | null; total_runs: number; records_collected: number }
 
-  const fetchSources = async () => {
+function AddSource({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", url: "", adapter: "html", source_type: "official", max_pages: 20 });
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setError(undefined);
+    try { await api.post("/api/sources", form); setOpen(false); onDone(); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>Register source</Button>
+      <Dialog open={open} onClose={() => setOpen(false)} title="Register a public source"
+        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" loading={busy} onClick={submit}>Register</Button></>}>
+        <div className="space-y-3">
+          <Notice tone="info">New sources start disabled. The URL is checked for safety (public address, http/https) and against robots.txt; review the site&apos;s terms of use before enabling it.</Notice>
+          <Field label="Name" htmlFor="s-name"><Input id="s-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+          <Field label="URL" htmlFor="s-url"><Input id="s-url" type="url" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} /></Field>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Adapter" htmlFor="s-ad"><Select id="s-ad" value={form.adapter} onChange={(e) => setForm({ ...form, adapter: e.target.value })}
+              options={["html", "rss", "sitemap", "json_api", "csv"].map((v) => ({ value: v, label: v }))} /></Field>
+            <Field label="Type" htmlFor="s-type"><Select id="s-type" value={form.source_type} onChange={(e) => setForm({ ...form, source_type: e.target.value })}
+              options={["official", "open_data", "news", "publication", "other"].map((v) => ({ value: v, label: v }))} /></Field>
+            <Field label="Max pages" htmlFor="s-max"><Input id="s-max" type="number" min={1} max={500} value={form.max_pages} onChange={(e) => setForm({ ...form, max_pages: Number(e.target.value) })} /></Field>
+          </div>
+          {error && <Notice tone="danger">{error}</Notice>}
+        </div>
+      </Dialog>
+    </>
+  );
+}
+
+export default function SourcesPage() {
+  const [retired, setRetired] = useState(false);
+  const list = useApi<Source[]>(`/api/sources?include_retired=${retired}`, { refreshMs: 30000 });
+  const [busy, setBusy] = useState<string>();
+  const [checks, setChecks] = useState<Record<number, string>>({});
+  const [error, setError] = useState<string>();
+
+  const toggle = async (s: Source) => {
+    setBusy(`t${s.id}`); setError(undefined);
+    try { await api.patch(`/api/sources/${s.id}`, { active: !s.active }); list.reload(); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(undefined); }
+  };
+  const check = async (s: Source) => {
+    setBusy(`c${s.id}`);
     try {
-      const [src, reg] = await Promise.all([
-        api.get("/api/sources"),
-        api.get("/api/collection/source-registry"),
-      ]);
-      setSources(src);
-      setRegistry(reg);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+      const r = await api.post<{ ok: boolean; status?: number; content_type?: string; error?: string; error_kind?: string }>(`/api/sources/${s.id}/check`);
+      setChecks((c) => ({ ...c, [s.id]: r.ok ? `OK · HTTP ${r.status} · ${r.content_type}` : `Failed · ${r.error_kind ?? ""} ${r.error ?? `HTTP ${r.status}`}` }));
+    } catch (e) { setChecks((c) => ({ ...c, [s.id]: (e as Error).message })); } finally { setBusy(undefined); }
+  };
+  const sync = async () => {
+    setBusy("sync");
+    try { await api.post("/api/sources/sync"); list.reload(); } finally { setBusy(undefined); }
   };
 
-  useEffect(() => { fetchSources(); }, []);
-
-  const registerAll = async () => {
-    setRegistering(true);
-    try {
-      await api.post("/api/collection/register-all-sources");
-      await fetchSources();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setRegistering(false);
-    }
-  };
-
-  const toggleSource = async (id: number) => {
-    try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/sources/${id}/toggle`, { method: 'PATCH' });
-      await fetchSources();
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const scrapeSource = async (id: number) => {
-    setScraping(id);
-    try {
-      await api.post(`/api/sources/${id}/scrape?max_records=50`);
-      await fetchSources();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setScraping(null);
-    }
-  };
-
-  const activeSources = sources.filter(s => s.active);
+  const groups = ["allowed", "paused", "credentials_required", "manual_review", "unsupported", "blocked", "retired"];
+  const sorted = [...(list.data ?? [])].sort((a, b) => groups.indexOf(a.policy_status) - groups.indexOf(b.policy_status) || a.name.localeCompare(b.name));
 
   return (
-    <AppShell>
-      <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <Globe className="w-6 h-6 text-blue-400" />
-                Source Registry
-              </h1>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">LIVE DATA</span>
-            </div>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {activeSources.length} active sources · {sources.length} registered · {registry?.total_sources || 0} available
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={registerAll}
-              disabled={registering}
-              className="flex items-center gap-2 px-4 py-2 text-xs rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-medium disabled:opacity-50 transition-colors"
-            >
-              {registering ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
-              Register All Sources
-            </button>
-            <button
-              onClick={fetchSources}
-              className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg border border-border/40 bg-secondary hover:bg-secondary/80 text-muted-foreground transition-colors"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {loading ? (
-          <Card className="h-96 animate-pulse border-border/30" />
-        ) : (
-          <>
-            {/* Sources by category from registry */}
-            {registry && Object.entries(registry.categories || {}).length > 0 && sources.length === 0 && (
-              <Card className="border-border/30 bg-card/50">
-                <CardHeader>
-                  <CardTitle className="text-sm">Available Source Categories</CardTitle>
-                  <CardDescription className="text-xs">Click &quot;Register All Sources&quot; to activate these</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {Object.entries(registry.categories as Record<string, any[]>).map(([cat, items]) => (
-                      <div key={cat} className="p-3 rounded-lg bg-secondary/50 border border-border/20">
-                        <p className="text-xs font-medium capitalize">{cat}</p>
-                        <p className="text-lg font-bold">{items.length}</p>
-                        <p className="text-[10px] text-muted-foreground">sources</p>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Registered Sources Table */}
-            {sources.length > 0 && (
-              <Card className="border-border/30 bg-card/50">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Registered Sources ({sources.length})</CardTitle>
-                  <CardDescription className="text-xs">Click play to scrape individual sources, or toggle to enable/disable</CardDescription>
-                </CardHeader>
-                <CardContent className="max-h-[600px] overflow-y-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-border/30">
-                        <TableHead className="text-xs">Source</TableHead>
-                        <TableHead className="text-xs">URL</TableHead>
-                        <TableHead className="text-xs">Type</TableHead>
-                        <TableHead className="text-xs">Policy</TableHead>
-                        <TableHead className="text-xs text-right">Records</TableHead>
-                        <TableHead className="text-xs text-right">Runs</TableHead>
-                        <TableHead className="text-xs text-center">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {sources.map((s) => (
-                        <TableRow key={s.id} className={`border-border/20 ${!s.active ? "opacity-50" : ""}`}>
-                          <TableCell className="text-xs font-medium max-w-[180px] truncate" title={s.name}>{s.name}</TableCell>
-                          <TableCell className="text-[10px] text-muted-foreground max-w-[200px] truncate" title={s.url}>{s.url}</TableCell>
-                          <TableCell className="text-[10px] text-muted-foreground">{s.source_type}</TableCell>
-                          <TableCell className="text-[10px]">
-                            <span className={
-                              s.policy_status === "allowed" ? "text-emerald-400" :
-                              s.policy_status === "blocked" ? "text-red-400" : "text-muted-foreground"
-                            }>
-                              {s.policy_status || "—"}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-xs text-right">{s.total_records_collected}</TableCell>
-                          <TableCell className="text-xs text-right text-muted-foreground">{s.total_runs}</TableCell>
-                          <TableCell className="text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                onClick={() => scrapeSource(s.id)}
-                                disabled={scraping === s.id || !s.active}
-                                className="p-1 rounded hover:bg-secondary transition-colors disabled:opacity-30"
-                                title="Scrape this source"
-                              >
-                                {scraping === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 text-amber-500" />}
-                              </button>
-                              <button
-                                onClick={() => toggleSource(s.id)}
-                                className="p-1 rounded hover:bg-secondary transition-colors"
-                                title={s.active ? "Disable" : "Enable"}
-                              >
-                                {s.active ? <ToggleRight className="w-4 h-4 text-emerald-400" /> : <ToggleLeft className="w-4 h-4 text-muted-foreground" />}
-                              </button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            )}
-          </>
+    <div className="space-y-5">
+      <PageHeader title="Source registry"
+        description="Every source records why it is or is not collected. Verification status reflects real runs only: configured → reachable → collected, or failing/blocked. Sources pause automatically after repeated failures."
+        actions={<OperatorOnly fallback={null}><Button size="sm" variant="ghost" loading={busy === "sync"} onClick={sync}>Sync curated registry</Button><AddSource onDone={list.reload} /></OperatorOnly>} />
+      {error && <Notice tone="danger">{error}</Notice>}
+      <Card bodyClassName="p-0 px-4 pb-2" title={list.data ? `${list.data.length} sources` : "Sources"}
+        actions={<Checkbox label="Show retired" checked={retired} onChange={(e) => setRetired(e.target.checked)} />}>
+        {list.error && <div className="py-3"><ErrorState error={list.error} onRetry={list.reload} /></div>}
+        {!list.data ? <div className="py-4"><LoadingBlock rows={6} /></div> : (
+          <Table caption="Registered sources">
+            <thead><tr><Th>Source</Th><Th>Policy</Th><Th>Verification</Th><Th>Last success</Th><Th className="text-right">Records</Th><Th className="text-right">Runs</Th><Th>Controls</Th></tr></thead>
+            <tbody>{sorted.map((s) => (
+              <tr key={s.id} className="align-top">
+                <Td className="max-w-md">
+                  <span className="font-medium">{s.name}</span>
+                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="block break-all text-xs text-primary hover:underline">{s.url}</a>
+                  <span className="mt-1 flex flex-wrap gap-1"><Badge>{s.adapter}</Badge><Badge>{s.source_type}</Badge>{s.schedule !== "manual" && <Badge>{s.schedule}</Badge>}</span>
+                  {s.policy_note && <p className="mt-1 text-xs text-muted">{s.policy_note}</p>}
+                  {s.last_error && <p className="mt-1 text-xs text-danger">Last error: {s.last_error}</p>}
+                  {checks[s.id] && <p className="mt-1 text-xs text-info">Check: {checks[s.id]}</p>}
+                </Td>
+                <Td><StatusBadge status={s.policy_status} />{s.active && <span className="mt-1 block text-[11px] text-success">enabled</span>}</Td>
+                <Td><StatusBadge status={s.verification_status} />{s.consecutive_failures > 0 && <span className="mt-1 block text-[11px] text-danger">{s.consecutive_failures} failed runs</span>}</Td>
+                <Td className="text-xs">{s.last_success_at ? <Timestamp value={s.last_success_at} relativeOnly /> : <span className="text-subtle">never</span>}</Td>
+                <Td className="text-right tabular">{num(s.records_collected)}</Td>
+                <Td className="text-right tabular">{num(s.total_runs)}</Td>
+                <Td>
+                  <OperatorOnly fallback={<span className="text-xs text-subtle">{label(s.policy_status)}</span>}>
+                    <div className="flex flex-col items-start gap-1">
+                      {["allowed", "paused", "manual_review"].includes(s.policy_status) && (
+                        <Button size="sm" variant={s.active ? "secondary" : "primary"} loading={busy === `t${s.id}`} onClick={() => toggle(s)}>{s.active ? "Disable" : "Enable"}</Button>
+                      )}
+                      {s.policy_status !== "blocked" && s.policy_status !== "retired" && (
+                        <Button size="sm" variant="ghost" loading={busy === `c${s.id}`} onClick={() => check(s)}>Test fetch</Button>
+                      )}
+                    </div>
+                  </OperatorOnly>
+                </Td>
+              </tr>
+            ))}</tbody>
+          </Table>
         )}
-      </div>
-    </AppShell>
+      </Card>
+    </div>
   );
 }

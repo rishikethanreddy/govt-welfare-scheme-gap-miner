@@ -1,0 +1,381 @@
+{
+  "task": "gap_type",
+  "labels": [
+    "application_gap",
+    "benefit_gap",
+    "deadline_gap",
+    "documentation_gap",
+    "eligibility_gap",
+    "misconception",
+    "payment_gap"
+  ],
+  "selected": "ensemble_tfidf_embedding",
+  "uncertainty_threshold": 0.0,
+  "training_records": {
+    "original_en": 67,
+    "translated_hi": 66,
+    "translated_hi_latn": 67,
+    "live_ai": 72
+  },
+  "class_distribution": {
+    "train": {
+      "misconception": 68,
+      "application_gap": 54,
+      "eligibility_gap": 40,
+      "documentation_gap": 28,
+      "benefit_gap": 18,
+      "deadline_gap": 4,
+      "payment_gap": 1
+    },
+    "val": {
+      "misconception": 18,
+      "application_gap": 13,
+      "benefit_gap": 11,
+      "eligibility_gap": 11,
+      "documentation_gap": 3,
+      "deadline_gap": 3
+    },
+    "test": {
+      "misconception": 19,
+      "application_gap": 16,
+      "eligibility_gap": 9,
+      "documentation_gap": 3,
+      "benefit_gap": 2,
+      "deadline_gap": 2
+    }
+  },
+  "validation_comparison": {
+    "majority_baseline": {
+      "n": 59,
+      "accuracy": 0.3051,
+      "macro_f1": 0.0668,
+      "weighted_f1": 0.1426
+    },
+    "tfidf_logreg": {
+      "n": 59,
+      "accuracy": 0.4746,
+      "macro_f1": 0.2267,
+      "weighted_f1": 0.3978
+    },
+    "embedding_logreg": {
+      "n": 59,
+      "accuracy": 0.4237,
+      "macro_f1": 0.3783,
+      "weighted_f1": 0.4765
+    },
+    "ensemble_tfidf_embedding": {
+      "n": 59,
+      "accuracy": 0.5254,
+      "macro_f1": 0.387,
+      "weighted_f1": 0.5073
+    }
+  },
+  "test": {
+    "n": 51,
+    "accuracy": 0.5882,
+    "macro_precision": 0.3308,
+    "macro_recall": 0.4059,
+    "macro_f1": 0.3508,
+    "weighted_f1": 0.5779,
+    "per_class": {
+      "application_gap": {
+        "precision": 0.4117647058823529,
+        "recall": 0.4375,
+        "f1-score": 0.42424242424242425,
+        "support": 16.0
+      },
+      "benefit_gap": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 2.0
+      },
+      "deadline_gap": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 2.0
+      },
+      "documentation_gap": {
+        "precision": 0.42857142857142855,
+        "recall": 1.0,
+        "f1-score": 0.6,
+        "support": 3.0
+      },
+      "eligibility_gap": {
+        "precision": 0.6,
+        "recall": 0.6666666666666666,
+        "f1-score": 0.631578947368421,
+        "support": 9.0
+      },
+      "misconception": {
+        "precision": 0.875,
+        "recall": 0.7368421052631579,
+        "f1-score": 0.8,
+        "support": 19.0
+      },
+      "payment_gap": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 0.0
+      },
+      "accuracy": 0.5882352941176471,
+      "macro avg": {
+        "precision": 0.33076230492196873,
+        "recall": 0.4058583959899749,
+        "f1-score": 0.35083162451583505,
+        "support": 51.0
+      },
+      "weighted avg": {
+        "precision": 0.5862539133300378,
+        "recall": 0.5882352941176471,
+        "f1-score": 0.5778841041998937,
+        "support": 51.0
+      }
+    },
+    "confusion_matrix": {
+      "labels": [
+        "application_gap",
+        "benefit_gap",
+        "deadline_gap",
+        "documentation_gap",
+        "eligibility_gap",
+        "misconception",
+        "payment_gap"
+      ],
+      "matrix": [
+        [
+          7,
+          0,
+          0,
+          4,
+          3,
+          2,
+          0
+        ],
+        [
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          3,
+          0,
+          0,
+          0
+        ],
+        [
+          3,
+          0,
+          0,
+          0,
+          6,
+          0,
+          0
+        ],
+        [
+          3,
+          1,
+          0,
+          0,
+          1,
+          14,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    }
+  },
+  "test_by_slice": {
+    "original_en": {
+      "n": 12,
+      "accuracy": 0.5833,
+      "macro_f1": 0.342,
+      "weighted_f1": 0.6136
+    },
+    "translated_hi": {
+      "n": 12,
+      "accuracy": 0.5833,
+      "macro_f1": 0.2727,
+      "weighted_f1": 0.5795
+    },
+    "translated_hi_latn": {
+      "n": 12,
+      "accuracy": 0.6667,
+      "macro_f1": 0.3571,
+      "weighted_f1": 0.6667
+    },
+    "live_ai": {
+      "n": 15,
+      "accuracy": 0.5333,
+      "macro_f1": 0.1845,
+      "weighted_f1": 0.425
+    }
+  },
+  "test_baseline": {
+    "n": 51,
+    "accuracy": 0.3725,
+    "macro_f1": 0.0776,
+    "weighted_f1": 0.2022
+  },
+  "grouped_cv": {
+    "folds": 5,
+    "grouping": "record (with its translations) / source page",
+    "macro_f1_mean": 0.2804,
+    "macro_f1_std": 0.0696,
+    "accuracy_mean": 0.5017
+  },
+  "errors": [
+    {
+      "text": "Our installment was credited this cycle in Samba district, do we need to reapply for the next one?",
+      "slice": "original_en",
+      "true": "misconception",
+      "pred": "application_gap"
+    },
+    {
+      "text": "I heard my district only got a couple hundred solar pump slots this year even though the national target is huge, is that true and how do I make sure I'm on the list?",
+      "slice": "original_en",
+      "true": "eligibility_gap",
+      "pred": "application_gap"
+    },
+    {
+      "text": "The computer operator at the block office says he's the only one linking Aadhaar to job cards for all the villages, is that really how it's supposed to work or is our block understaffed?",
+      "slice": "original_en",
+      "true": "application_gap",
+      "pred": "misconception"
+    },
+    {
+      "text": "The bank refused to even open a Jan Dhan account for me and didn't give a reason, what can I actually do about that?",
+      "slice": "original_en",
+      "true": "application_gap",
+      "pred": "documentation_gap"
+    },
+    {
+      "text": "Is it true the government is planning to raise the PMJJBY and PMSBY cover from 2 lakh to 5 lakh, and would that apply to policies I already hold?",
+      "slice": "original_en",
+      "true": "misconception",
+      "pred": "benefit_gap"
+    },
+    {
+      "text": "सांबा जिले में इस बार हमारी किस्त आ गई, क्या अगली किस्त के लिए हमें फिर से आवेदन करना होगा?",
+      "slice": "translated_hi",
+      "true": "misconception",
+      "pred": "application_gap"
+    },
+    {
+      "text": "सुना है राष्ट्रीय लक्ष्य बड़ा होने के बावजूद हमारे जिले को इस साल सिर्फ कुछ सौ सोलर पंप मिले हैं, क्या यह सच है और मैं सूची में अपना नाम कैसे पक्का करूं?",
+      "slice": "translated_hi",
+      "true": "eligibility_gap",
+      "pred": "application_gap"
+    },
+    {
+      "text": "मेरे राज्य की कोई अलग पीडीएफ सूची नहीं है, तो मैं पीएमएवाई-जी सूची में अपना नाम कैसे देखूं?",
+      "slice": "translated_hi",
+      "true": "application_gap",
+      "pred": "eligibility_gap"
+    },
+    {
+      "text": "ब्लॉक कार्यालय का कंप्यूटर ऑपरेटर कह रहा है कि सारे गांवों के जॉब कार्ड से आधार वही अकेला जोड़ रहा है, क्या सच में ऐसा ही होना चाहिए या ब्लॉक में कर्मचारी कम हैं?",
+      "slice": "translated_hi",
+      "true": "application_gap",
+      "pred": "documentation_gap"
+    },
+    {
+      "text": "बैंक ने बिना कोई वजह बताए मेरा जन धन खाता खोलने से मना कर दिया, मैं इसके बारे में क्या कर सकता हूं?",
+      "slice": "translated_hi",
+      "true": "application_gap",
+      "pred": "documentation_gap"
+    },
+    {
+      "text": "Samba jile me is baar hamari kist aa gayi, kya agli kist ke liye hume dobara apply karna hoga?",
+      "slice": "translated_hi_latn",
+      "true": "misconception",
+      "pred": "application_gap"
+    },
+    {
+      "text": "Suna hai rashtriya lakshya bada hone ke bawajood hamare jile ko is saal sirf kuch sau solar pump mile hai, kya ye sach hai aur main list me apna naam kaise pakka karu?",
+      "slice": "translated_hi_latn",
+      "true": "eligibility_gap",
+      "pred": "application_gap"
+    },
+    {
+      "text": "Block office ka computer operator keh raha hai ki saare gaon ke job card se Aadhaar wahi akela jod raha hai, kya sach me aise hi hona chahiye ya block me staff kam hai?",
+      "slice": "translated_hi_latn",
+      "true": "application_gap",
+      "pred": "misconception"
+    },
+    {
+      "text": "Bank ne bina koi wajah bataye mera Jan Dhan khata kholne se mana kar diya, main iske baare me kya kar sakta hu?",
+      "slice": "translated_hi_latn",
+      "true": "application_gap",
+      "pred": "documentation_gap"
+    },
+    {
+      "text": "Mangesh sir is right.....main bhi bank gyi but bank ne saaf inkar kr dia....mujhr to bahit ho zrurat h but phir bh nh mol pa ra h kya kru.",
+      "slice": "live_ai",
+      "true": "application_gap",
+      "pred": "eligibility_gap"
+    },
+    {
+      "text": "I have constructed a house and applied for a loan and availed. But the banker refused to provide pmay subsidy. How I can get it? Pho;[PHONE]",
+      "slice": "live_ai",
+      "true": "application_gap",
+      "pred": "eligibility_gap"
+    },
+    {
+      "text": "prime minister schme ke liya kam se kam kita rupees ka flat milage AUR USKO HE AGE BHASIVAY ME SALE KAR SAKHE HE KI NAHI AUR USKI INTEREST & KIST KITNI BANGI KITNE SAL KE LIYE LEKAR HUM USKO KIRYE PAR DE SAKHE HE YA NAHI HUMKO JAGAH KAHA MILAGI DELHI AUR AUP KAHA PHAR",
+      "slice": "live_ai",
+      "true": "benefit_gap",
+      "pred": "application_gap"
+    },
+    {
+      "text": "Sir, Kya yeh yojna gramin bharat me lagu nahi hai. kya city me hi log rahte hai. kya gaon me garib nahi hai,",
+      "slice": "live_ai",
+      "true": "misconception",
+      "pred": "eligibility_gap"
+    },
+    {
+      "text": "Pradhan mantri abas yojana mere yaha kab lagu hogi mainpri uttar pradesh",
+      "slice": "live_ai",
+      "true": "deadline_gap",
+      "pred": "application_gap"
+    },
+    {
+      "text": "What is the last date of Pradhan Mantri Awas Yojana?",
+      "slice": "live_ai",
+      "true": "deadline_gap",
+      "pred": "application_gap"
+    },
+    {
+      "text": "Do AyushmanBharat covers Cataract surgery ? Pradhan Mantri Jan Arogya Yojana (PM-JAY) covers Cataract surgery ?",
+      "slice": "live_ai",
+      "true": "benefit_gap",
+      "pred": "application_gap"
+    }
+  ]
+}

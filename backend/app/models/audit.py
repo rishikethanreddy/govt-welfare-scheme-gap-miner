@@ -5,9 +5,9 @@ Logs important system events: data imports, NLP runs, source operations,
 configuration changes, etc. Never logs passwords, tokens, or PII.
 """
 
-from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Text, DateTime, Index
+from sqlalchemy import Column, Integer, String, Text, Index
 from backend.app.database import Base
+from backend.app.models.coltypes import UTCDateTime, utcnow
 
 
 class AuditLog(Base):
@@ -27,7 +27,7 @@ class AuditLog(Base):
     severity = Column(String(20), nullable=False, default="info", doc="info / warning / error / critical")
 
     # ── Timestamps ────────────────────────────────────────────────────────
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
 
     __table_args__ = (
         Index("ix_audit_action_date", "action", "created_at"),

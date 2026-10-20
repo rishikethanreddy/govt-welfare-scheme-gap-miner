@@ -1,166 +1,29 @@
 """
-Seed data script — populates the database with initial reference data.
+Seed reference data (idempotent).
 
-- 15 government welfare schemes
-- India states and union territories
-- Initial CSV dataset import
+  * Scheme registry rows (from backend.app.nlp.schemes.DEFAULT_SCHEMES)
+  * India states / union territories (for map reference)
+  * Curated collection sources (backend.app.collection.registry)
+  * The labelled research dataset, imported through the normal upload pipeline
+    and processed synchronously (embeddings, NLP predictions, clustering)
 
-Run: python -m backend.app.seed
+Run: python -m backend.app.seed      (after: alembic upgrade head)
 """
 
-import sys
-import os
+import logging
+from pathlib import Path
 
-# Ensure project root is on path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-from backend.app.database import SessionLocal, Base, engine
-from backend.app.models.scheme import Scheme
-from backend.app.models.geography import GeographicEntity
-from backend.app.models.source import Source
+from backend.app.collection.registry import sync_registry
+from backend.app.config import PROJECT_ROOT
+from backend.app.database import SessionLocal
 from backend.app.models.audit import AuditLog
-from backend.app.services.dataset import DatasetService
+from backend.app.models.geography import GeographicEntity
+from backend.app.models.processing import DatasetVersion
+from backend.app.models.scheme import Scheme
+from backend.app.nlp.schemes import DEFAULT_SCHEMES
 
-
-# ── Scheme Data ───────────────────────────────────────────────────────────
-
-SCHEMES = [
-    {
-        "name": "Pradhan Mantri Kisan Samman Nidhi",
-        "short_name": "PM-KISAN",
-        "category": "agriculture",
-        "ministry": "Ministry of Agriculture & Farmers Welfare",
-        "aliases": "pm kisan,pm-kisan,pmkisan,kisan samman nidhi,pradhan mantri kisan",
-        "official_url": "https://pmkisan.gov.in/",
-        "display_order": 1,
-    },
-    {
-        "name": "Pradhan Mantri Fasal Bima Yojana",
-        "short_name": "PMFBY",
-        "category": "agriculture",
-        "ministry": "Ministry of Agriculture & Farmers Welfare",
-        "aliases": "pmfby,fasal bima,crop insurance,pradhan mantri fasal bima yojana",
-        "official_url": "https://pmfby.gov.in/",
-        "display_order": 2,
-    },
-    {
-        "name": "Pradhan Mantri Kisan Urja Suraksha evam Utthaan Mahabhiyan",
-        "short_name": "PM-KUSUM",
-        "category": "energy",
-        "ministry": "Ministry of New and Renewable Energy",
-        "aliases": "pm kusum,pm-kusum,solar pump,kusum yojana",
-        "official_url": "https://mnre.gov.in/",
-        "display_order": 3,
-    },
-    {
-        "name": "Pradhan Mantri Awas Yojana",
-        "short_name": "PMAY",
-        "category": "housing",
-        "ministry": "Ministry of Housing and Urban Affairs",
-        "aliases": "pmay,awas yojana,pm awas,housing scheme,pradhan mantri awas yojana",
-        "official_url": "https://pmaymis.gov.in/",
-        "display_order": 4,
-    },
-    {
-        "name": "Ayushman Bharat - Pradhan Mantri Jan Arogya Yojana",
-        "short_name": "Ayushman Bharat PM-JAY",
-        "category": "health",
-        "ministry": "Ministry of Health and Family Welfare",
-        "aliases": "ayushman bharat,pm-jay,pmjay,ayushman card,health card",
-        "official_url": "https://pmjay.gov.in/",
-        "display_order": 5,
-    },
-    {
-        "name": "Mahatma Gandhi National Rural Employment Guarantee Act",
-        "short_name": "MGNREGA",
-        "category": "employment",
-        "ministry": "Ministry of Rural Development",
-        "aliases": "mgnrega,nrega,100 days work,job card,mahatma gandhi nrega",
-        "official_url": "https://nrega.nic.in/",
-        "display_order": 6,
-    },
-    {
-        "name": "Pradhan Mantri Jan Dhan Yojana",
-        "short_name": "PMJDY",
-        "category": "financial",
-        "ministry": "Ministry of Finance",
-        "aliases": "pmjdy,jan dhan,zero balance account",
-        "official_url": "https://pmjdy.gov.in/",
-        "display_order": 7,
-    },
-    {
-        "name": "Pradhan Mantri Mudra Yojana",
-        "short_name": "PMMY",
-        "category": "financial",
-        "ministry": "Ministry of Finance",
-        "aliases": "pmmy,mudra yojana,mudra loan,shishu loan,tarun loan,kishore loan",
-        "official_url": "https://www.mudra.org.in/",
-        "display_order": 8,
-    },
-    {
-        "name": "PM Street Vendor's AtmaNirbhar Nidhi",
-        "short_name": "PM SVANidhi",
-        "category": "financial",
-        "ministry": "Ministry of Housing and Urban Affairs",
-        "aliases": "svanidhi,street vendor,pm svanidhi",
-        "official_url": "https://pmsvanidhi.mohua.gov.in/",
-        "display_order": 9,
-    },
-    {
-        "name": "Atal Pension Yojana",
-        "short_name": "APY",
-        "category": "insurance",
-        "ministry": "Ministry of Finance",
-        "aliases": "apy,atal pension",
-        "official_url": "https://www.npscra.nsdl.co.in/",
-        "display_order": 10,
-    },
-    {
-        "name": "Pradhan Mantri Jeevan Jyoti Bima Yojana",
-        "short_name": "PMJJBY",
-        "category": "insurance",
-        "ministry": "Ministry of Finance",
-        "aliases": "pmjjby,jeevan jyoti",
-        "display_order": 11,
-    },
-    {
-        "name": "Pradhan Mantri Suraksha Bima Yojana",
-        "short_name": "PMSBY",
-        "category": "insurance",
-        "ministry": "Ministry of Finance",
-        "aliases": "pmsby,suraksha bima",
-        "display_order": 12,
-    },
-    {
-        "name": "National Social Assistance Programme",
-        "short_name": "NSAP",
-        "category": "social",
-        "ministry": "Ministry of Rural Development",
-        "aliases": "nsap,old age pension,widow pension,disability pension",
-        "display_order": 13,
-    },
-    {
-        "name": "Pradhan Mantri Ujjwala Yojana",
-        "short_name": "PMUY",
-        "category": "energy",
-        "ministry": "Ministry of Petroleum and Natural Gas",
-        "aliases": "pmuy,ujjwala,gas cylinder scheme,free gas",
-        "official_url": "https://www.pmuy.gov.in/",
-        "display_order": 14,
-    },
-    {
-        "name": "PM Vishwakarma",
-        "short_name": "PM Vishwakarma",
-        "category": "employment",
-        "ministry": "Ministry of Micro, Small and Medium Enterprises",
-        "aliases": "vishwakarma,artisan scheme,pm vishwakarma",
-        "official_url": "https://pmvishwakarma.gov.in/",
-        "display_order": 15,
-    },
-]
-
-
-# ── India States & UTs ───────────────────────────────────────────────────
+logger = logging.getLogger("seed")
+INITIAL_DATASET = PROJECT_ROOT / "data" / "raw" / "welfare_awareness_dataset_with_split.csv"
 
 STATES = [
     {"name": "Andhra Pradesh", "code": "AP", "iso_code": "IN-AP", "entity_type": "state", "latitude": 15.9129, "longitude": 79.7400},
@@ -203,120 +66,61 @@ STATES = [
 ]
 
 
-def seed_schemes(db):
-    """Seed the 15 welfare schemes."""
-    existing = db.query(Scheme).count()
-    if existing > 0:
-        print(f"  Schemes already seeded ({existing} found). Skipping.")
-        return
-
-    for s in SCHEMES:
-        scheme = Scheme(**s, active=True)
-        db.add(scheme)
-
+def seed_schemes(db) -> int:
+    n = 0
+    for order, d in enumerate(DEFAULT_SCHEMES, start=1):
+        row = db.query(Scheme).filter(Scheme.short_name == d.code).first() or Scheme(short_name=d.code)
+        row.name, row.category, row.ministry, row.official_url = d.name, d.category, d.ministry, d.official_url
+        row.aliases = ",".join(d.strong)
+        row.weak_aliases = ",".join(d.weak)
+        row.display_order, row.active = order, True
+        db.add(row)
+        n += 1
     db.commit()
-    print(f"  [OK] Seeded {len(SCHEMES)} welfare schemes")
+    return n
 
 
-def seed_geography(db):
-    """Seed India states and union territories."""
-    existing = db.query(GeographicEntity).count()
-    if existing > 0:
-        print(f"  Geography already seeded ({existing} found). Skipping.")
-        return
-
-    # Add India
-    india = GeographicEntity(
-        name="India", entity_type="country", code="IN",
-        iso_code="IN", latitude=20.5937, longitude=78.9629,
-    )
-    db.add(india)
-    db.flush()
-
+def seed_geography(db) -> int:
+    india = db.query(GeographicEntity).filter(GeographicEntity.code == "IN").first()
+    if india is None:
+        india = GeographicEntity(name="India", entity_type="country", code="IN", iso_code="IN",
+                                 latitude=20.5937, longitude=78.9629)
+        db.add(india)
+        db.flush()
+    added = 0
     for s in STATES:
-        state = GeographicEntity(parent_id=india.id, **s)
-        db.add(state)
-
+        if not db.query(GeographicEntity.id).filter(GeographicEntity.code == s["code"]).first():
+            db.add(GeographicEntity(parent_id=india.id, **s))
+            added += 1
     db.commit()
-    print(f"  [OK] Seeded {len(STATES)} states/UTs + India")
+    return added
 
 
-def seed_initial_source(db):
-    """Register the initial CSV dataset as a source."""
-    existing = db.query(Source).filter(Source.name == "Initial CSV Dataset").first()
-    if existing:
-        print("  Initial source already exists. Skipping.")
-        return
-
-    source = Source(
-        name="Initial CSV Dataset",
-        source_type="csv_upload",
-        organization="Research Project",
-        description="Initial labeled dataset with 127 records across 15 welfare schemes",
-        collection_method="manual",
-        policy_status="allowed",
-        active=True,
-    )
-    db.add(source)
-    db.commit()
-    print("  [OK] Registered initial CSV source")
-
-
-def seed_dataset(db):
-    """Import the initial CSV dataset if it exists."""
-    csv_path = os.path.join("data", "raw", "welfare_awareness_dataset_with_split.csv")
-    if not os.path.exists(csv_path):
-        print(f"  CSV not found at {csv_path}. Skipping dataset import.")
-        return
-
-    svc = DatasetService(db)
-
-    # Check if already imported
-    from backend.app.models.processing import DatasetVersion
-    existing = db.query(DatasetVersion).filter(DatasetVersion.version == "v1.0").first()
-    if existing:
-        print(f"  Dataset v1.0 already imported ({existing.record_count} records). Skipping.")
-        return
-
-    result = svc.ingest_csv(csv_path, version="v1.0", name="Initial Research Dataset")
-    print(f"  [OK] Imported dataset v1.0: {result['valid_records']} records "
-          f"({result['duplicate_records']} duplicates, {result['rejected_records']} rejected)")
+def seed_dataset(db, path: Path = INITIAL_DATASET):
+    import hashlib
+    from backend.app.services import jobs
+    from backend.app.services.dataset import import_dataset
+    if not path.exists():
+        return "missing"
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    if db.query(DatasetVersion.id).filter(DatasetVersion.file_sha256 == sha).first():
+        return "already imported"
+    dv, job, summary = import_dataset(db, path.read_bytes(), path.name, name="Labelled research dataset",
+                                      description="127 manually labelled public questions (train/val/test split)")
+    jobs.run_job(job.id)
+    return summary
 
 
 def main():
-    """Run all seed operations."""
-    print("=" * 60)
-    print("  Seeding Database")
-    print("=" * 60)
-
-    # Create tables
-    Base.metadata.create_all(bind=engine)
-    print("  [OK] Database tables created/verified")
-
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     db = SessionLocal()
     try:
-        seed_schemes(db)
-        seed_geography(db)
-        seed_initial_source(db)
-        seed_dataset(db)
-
-        # Audit log
-        audit = AuditLog(
-            action="system",
-            description="Database seeded with initial reference data and dataset",
-            severity="info",
-        )
-        db.add(audit)
+        print(f"Schemes: {seed_schemes(db)} upserted")
+        print(f"Geography: {seed_geography(db)} states/UTs added")
+        print(f"Sources: {sync_registry(db)}")
+        print(f"Dataset: {seed_dataset(db)}")
+        db.add(AuditLog(action="system", user="seed", description="Reference data seeded"))
         db.commit()
-
-        print("=" * 60)
-        print("  [OK] Seed complete!")
-        print("=" * 60)
-
-    except Exception as e:
-        db.rollback()
-        print(f"  [ERROR] Seed failed: {e}")
-        raise
     finally:
         db.close()
 

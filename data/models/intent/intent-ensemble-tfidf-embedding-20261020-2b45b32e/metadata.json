@@ -1,0 +1,62 @@
+{
+  "task": "intent",
+  "version": "intent-ensemble-tfidf-embedding-20261020-2b45b32e",
+  "algorithm": "ensemble_tfidf_embedding",
+  "labels": [
+    "application",
+    "benefits",
+    "complaint",
+    "deadline",
+    "documentation",
+    "eligibility",
+    "general_information",
+    "payment"
+  ],
+  "uncertainty_threshold": 0.0,
+  "ood_similarity_threshold": 0.423,
+  "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
+  "preprocessing": "backend.app.nlp.text.model_text (NFKC, zero-width removal, lowercase, URL removal)",
+  "training_data": {
+    "files": [
+      "data/raw/welfare_awareness_dataset_with_split.csv",
+      "data/raw/translations_hi.csv",
+      "data/raw/translations_hi_latn.csv",
+      "data/raw/live_comments_ai_annotated.csv"
+    ],
+    "sha256": "2b45b32e6ce20fa1bf83a7a9d28b5777b3f57dbcee533f37dcd6ad9742d09e8d",
+    "train_plus_val_records": 531
+  },
+  "trained_at": "2026-10-20T16:10:07.811936+00:00",
+  "test_metrics": {
+    "n": 101,
+    "accuracy": 0.5842,
+    "macro_f1": 0.4345,
+    "weighted_f1": 0.5603
+  },
+  "test_by_slice": {
+    "original_en": {
+      "n": 21,
+      "accuracy": 0.619,
+      "macro_f1": 0.4333,
+      "weighted_f1": 0.5206
+    },
+    "translated_hi": {
+      "n": 21,
+      "accuracy": 0.4762,
+      "macro_f1": 0.3339,
+      "weighted_f1": 0.3941
+    },
+    "translated_hi_latn": {
+      "n": 21,
+      "accuracy": 0.5714,
+      "macro_f1": 0.4172,
+      "weighted_f1": 0.543
+    },
+    "live_ai": {
+      "n": 38,
+      "accuracy": 0.6316,
+      "macro_f1": 0.2837,
+      "weighted_f1": 0.5695
+    }
+  }
+}

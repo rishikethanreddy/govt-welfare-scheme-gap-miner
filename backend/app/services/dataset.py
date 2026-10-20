@@ -1,232 +1,211 @@
 """
-Dataset service — CSV/JSON ingestion, validation, and versioning.
+Dataset import: CSV/JSON parsing → column mapping → shared ingest pipeline →
+background NLP job.
 
-Handles the full pipeline: upload → column mapping → validation → dedup → DB.
+Re-import protection: every file's SHA-256 is stored on its DatasetVersion; the
+same file is refused unless force=True. Rows whose text already exists in the
+dataset workspace are stored but flagged as duplicates (and excluded from
+analytics), so each import remains fully traceable row by row.
 """
 
-import os
+import csv
 import hashlib
-import math
-from datetime import datetime, timezone
+import io
+import json
+import re
+import uuid
+from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 from sqlalchemy.orm import Session
 
-from backend.app.models.document import Document
-from backend.app.models.processing import DatasetVersion
+from backend.app.config import PROJECT_ROOT, get_settings
 from backend.app.models.audit import AuditLog
+from backend.app.models.processing import DatasetVersion, ProcessingJob
+from backend.app.services.pipeline import IncomingRecord, ingest_records
+
+COLUMN_MAP = {
+    "text": ["text", "query", "question", "querytext", "content", "message", "body", "original_text"],
+    "scheme": ["scheme", "scheme_name", "welfare_scheme", "program"],
+    "intent": ["intent", "intent_label"],
+    "awareness_gap": ["awareness_gap", "gap", "has_gap"],
+    "gap_type": ["gap_type", "gap_category", "awareness_gap_type"],
+    "state": ["state", "state_name", "statename"],
+    "district": ["district", "district_name", "districtname"],
+    "source": ["source", "source_name", "data_source"],
+    "source_type": ["source_type"],
+    "source_url": ["source_url", "url", "link"],
+    "published_at": ["published_at", "date", "created_on", "createdon", "timestamp"],
+    "text_role": ["text_role", "role"],
+    "language": ["language", "lang"],
+    "is_synthetic": ["is_synthetic", "synthetic"],
+    "confidence": ["confidence", "confidence_level"],
+    "notes": ["notes", "remarks"],
+    "split": ["split", "data_split"],
+    "id": ["id", "record_id", "row_id"],
+}
+TRUE_VALUES = {"yes", "true", "1", "y"}
 
 
-class DatasetService:
-    def __init__(self, db: Session):
-        self.db = db
+class ImportError_(ValueError):
+    """Raised for invalid uploads; message is safe to show to users."""
 
-    # ── Known column aliases ──────────────────────────────────────────────
-    COLUMN_MAP = {
-        # Canonical name → list of possible aliases
-        "text": ["text", "query", "question", "content", "description", "message", "body"],
-        "scheme": ["scheme", "scheme_name", "welfare_scheme", "program"],
-        "intent": ["intent", "intent_label", "category"],
-        "awareness_gap": ["awareness_gap", "gap", "has_gap"],
-        "gap_type": ["gap_type", "gap_category", "awareness_gap_type"],
-        "state": ["state", "state_name", "region"],
-        "district": ["district", "district_name"],
-        "source": ["source", "data_source", "origin"],
-        "source_type": ["source_type", "type"],
-        "language": ["language", "lang"],
-        "source_url": ["source_url", "url", "link"],
-        "is_synthetic": ["is_synthetic", "synthetic"],
-        "confidence": ["confidence", "confidence_level"],
-        "notes": ["notes", "remarks", "comment"],
-        "split": ["split", "data_split"],
-    }
 
-    def auto_map_columns(self, csv_columns: list[str]) -> dict[str, Optional[str]]:
-        """Auto-detect column mapping from CSV headers to canonical fields."""
-        mapping = {}
-        csv_lower = {c.lower().strip(): c for c in csv_columns}
+class DuplicateImport(Exception):
+    def __init__(self, existing: DatasetVersion):
+        super().__init__(f"This exact file was already imported as {existing.version} (id {existing.id}).")
+        self.existing = existing
 
-        for canonical, aliases in self.COLUMN_MAP.items():
-            matched = None
-            for alias in aliases:
-                if alias in csv_lower:
-                    matched = csv_lower[alias]
-                    break
-            mapping[canonical] = matched
 
-        return mapping
+def auto_map_columns(columns: list[str]) -> dict:
+    lower = {re.sub(r"[\s\-]+", "_", c.strip().lower()): c for c in columns}
+    mapping = {}
+    for canonical, aliases in COLUMN_MAP.items():
+        mapping[canonical] = next((lower[a] for a in aliases if a in lower), None)
+    return mapping
 
-    def _next_version(self) -> str:
-        """Generate the next dataset version string."""
-        latest = (
-            self.db.query(DatasetVersion)
-            .order_by(DatasetVersion.id.desc())
-            .first()
-        )
-        if not latest:
-            return "v1.0"
 
-        # Parse version number
+def _decode(content: bytes) -> str:
+    for enc in ("utf-8-sig", "utf-16", "cp1252"):
         try:
-            version_num = float(latest.version.replace("v", ""))
-            return f"v{version_num + 1.0:.1f}"
-        except (ValueError, AttributeError):
-            return f"v{(latest.id or 0) + 1}.0"
-
-    def _content_hash(self, text: str) -> str:
-        """Generate content hash for deduplication."""
-        normalized = text.lower().strip()
-        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
-
-    def ingest_csv(
-        self,
-        file_path: str,
-        column_mapping: Optional[dict] = None,
-        version: Optional[str] = None,
-        name: Optional[str] = None,
-    ) -> dict:
-        """
-        Ingest a CSV file into the database.
-
-        Returns a summary of the import operation.
-        """
-        df = pd.read_csv(file_path)
-
-        # Auto-detect mapping if not provided
-        if not column_mapping:
-            column_mapping = self.auto_map_columns(list(df.columns))
-
-        # Create dataset version
-        version = version or self._next_version()
-
-        # Check if version already exists
-        existing = self.db.query(DatasetVersion).filter(DatasetVersion.version == version).first()
-        if existing:
-            return {
-                "error": f"Dataset version {version} already exists.",
-                "dataset_version_id": existing.id,
-            }
-
-        dataset_version = DatasetVersion(
-            version=version,
-            name=name or os.path.basename(file_path),
-            source_file=os.path.basename(file_path),
-            source_type="csv_upload",
-            record_count=len(df),
-            processing_status="importing",
-        )
-        self.db.add(dataset_version)
-        self.db.commit()
-        self.db.refresh(dataset_version)
-
-        # Process records
-        valid_count = 0
-        duplicate_count = 0
-        rejected_count = 0
-        seen_hashes = set()
-
-        # Get existing content hashes for deduplication
-        existing_hashes = set(
-            r[0] for r in
-            self.db.query(Document.duplicate_group_id)
-            .filter(Document.duplicate_group_id != None)
-            .all()
-        )
-
-        documents = []
-        for _, row in df.iterrows():
-            row_dict = {k: (v if pd.notna(v) else None) for k, v in row.to_dict().items()}
-
-            # Get text through column mapping
-            text_col = column_mapping.get("text")
-            text = row_dict.get(text_col, "") if text_col else ""
-
-            if not text or not str(text).strip():
-                rejected_count += 1
+            text = content.decode(enc)
+            if enc == "utf-16" and "\x00" in text:
                 continue
+            return text
+        except UnicodeDecodeError:
+            continue
+    raise ImportError_("File is not valid UTF-8, UTF-16 or Windows-1252 text.")
 
-            text = str(text).strip()
 
-            # Deduplication
-            content_hash = self._content_hash(text)
-            is_dup = content_hash in seen_hashes or content_hash in existing_hashes
-            if is_dup:
-                duplicate_count += 1
+def parse_rows(content: bytes, filename: str) -> tuple[list[dict], list[str]]:
+    settings = get_settings()
+    ext = Path(filename).suffix.lower()
+    text = _decode(content)
+    if ext == ".json":
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ImportError_(f"Invalid JSON: {e.msg} at line {e.lineno}.")
+        if isinstance(data, dict):
+            data = data.get("records") or data.get("data") or data.get("items")
+        if not isinstance(data, list) or not all(isinstance(r, dict) for r in data):
+            raise ImportError_("JSON must be an array of objects, or an object with a 'records' array.")
+        rows = data
+        columns = list(dict.fromkeys(k for r in rows[:200] for k in r))
+    elif ext == ".csv":
+        try:
+            dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
+        except csv.Error:
+            dialect = csv.excel
+        reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+        if not reader.fieldnames:
+            raise ImportError_("CSV has no header row.")
+        try:
+            rows = list(reader)
+        except csv.Error as e:
+            raise ImportError_(f"Malformed CSV: {e}")
+        columns = [c for c in reader.fieldnames if c is not None]
+    else:
+        raise ImportError_(f"Unsupported file type '{ext}'. Upload .csv or .json.")
+    if len(rows) > settings.MAX_UPLOAD_ROWS:
+        raise ImportError_(f"File has {len(rows)} rows; the limit is {settings.MAX_UPLOAD_ROWS}.")
+    if not rows:
+        raise ImportError_("File contains no data rows.")
+    return rows, columns
 
-            seen_hashes.add(content_hash)
 
-            # Build document
-            def _get(canonical_name):
-                col = column_mapping.get(canonical_name)
-                return str(row_dict.get(col, "")).strip() if col and row_dict.get(col) is not None else None
+def preview(content: bytes, filename: str) -> dict:
+    rows, columns = parse_rows(content, filename)
+    mapping = auto_map_columns(columns)
+    return {"columns": columns, "row_count": len(rows), "mapping": mapping,
+            "sample": [{k: (str(v)[:200] if v is not None else None) for k, v in r.items()} for r in rows[:5]],
+            "missing_text_column": mapping.get("text") is None}
 
-            is_synth_val = _get("is_synthetic")
-            is_synthetic = is_synth_val.lower() in ("yes", "true", "1") if is_synth_val else False
 
-            doc = Document(
-                original_text=text,
-                normalized_text=None,  # Will be set by NLP pipeline
-                scheme_name=_get("scheme"),
-                intent=_get("intent"),
-                awareness_gap=_get("awareness_gap"),
-                gap_type=_get("gap_type"),
-                state=_get("state"),
-                district=_get("district"),
-                source_name=_get("source"),
-                source_type=_get("source_type"),
-                language=_get("language") or "en",
-                source_url=_get("source_url"),
-                confidence=_get("confidence"),
-                notes=_get("notes"),
-                split=_get("split"),
-                is_synthetic=is_synthetic,
-                is_duplicate=is_dup,
-                duplicate_group_id=content_hash,
-                original_csv_id=str(row_dict.get("id", "")),
-                dataset_version_id=dataset_version.id,
-                processing_status="imported",
-                collected_at=datetime.now(timezone.utc),
-            )
-            documents.append(doc)
-            valid_count += 1
+def _next_version(db: Session) -> str:
+    n = db.query(DatasetVersion).count()
+    while True:
+        n += 1
+        v = f"v{n}"
+        if not db.query(DatasetVersion.id).filter(DatasetVersion.version == v).first():
+            return v
 
-        # Bulk insert
-        if documents:
-            self.db.bulk_save_objects(documents)
 
-        # Update dataset version
-        dataset_version.valid_records = valid_count
-        dataset_version.duplicate_records = duplicate_count
-        dataset_version.rejected_records = rejected_count
-        dataset_version.processing_status = "imported"
-        self.db.commit()
+def _safe_store(content: bytes, filename: str) -> str:
+    settings = get_settings()
+    upload_dir = Path(settings.UPLOAD_DIR)
+    upload_dir = upload_dir if upload_dir.is_absolute() else PROJECT_ROOT / upload_dir
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    ext = Path(filename).suffix.lower()
+    if ext not in (".csv", ".json"):
+        ext = ".bin"
+    # Never use the client-supplied name as a path component.
+    path = upload_dir / f"{uuid.uuid4().hex}{ext}"
+    path.write_bytes(content)
+    return path.relative_to(PROJECT_ROOT).as_posix() if path.is_relative_to(PROJECT_ROOT) else str(path)
 
-        # Audit log
-        audit = AuditLog(
-            action="dataset_import",
-            entity_type="dataset",
-            entity_id=str(dataset_version.id),
-            description=f"Imported {valid_count} records from {os.path.basename(file_path)}",
-            details=f'{{"version": "{version}", "total": {len(df)}, "valid": {valid_count}, "duplicates": {duplicate_count}, "rejected": {rejected_count}}}',
-        )
-        self.db.add(audit)
-        self.db.commit()
 
-        return {
-            "dataset_version_id": dataset_version.id,
-            "version": version,
-            "total_records": len(df),
-            "valid_records": valid_count,
-            "duplicate_records": duplicate_count,
-            "rejected_records": rejected_count,
-            "processing_status": "imported",
-        }
+def import_dataset(db: Session, content: bytes, filename: str, mapping: Optional[dict] = None,
+                   name: Optional[str] = None, description: Optional[str] = None,
+                   force: bool = False, default_role: str = "query") -> tuple[DatasetVersion, ProcessingJob, dict]:
+    sha = hashlib.sha256(content).hexdigest()
+    existing = db.query(DatasetVersion).filter(DatasetVersion.file_sha256 == sha).first()
+    if existing and not force:
+        raise DuplicateImport(existing)
+    rows, columns = parse_rows(content, filename)
+    mapping = {**auto_map_columns(columns), **(mapping or {})}
+    unknown = [v for v in mapping.values() if v and v not in columns]
+    if unknown:
+        raise ImportError_(f"Mapped columns not found in file: {', '.join(unknown)}")
+    if not mapping.get("text"):
+        raise ImportError_("No text column found. Map one of the columns to 'text'.")
 
-    def get_versions(self) -> list[DatasetVersion]:
-        """List all dataset versions."""
-        return (
-            self.db.query(DatasetVersion)
-            .order_by(DatasetVersion.id.desc())
-            .all()
-        )
+    stored_path = _safe_store(content, filename)
+    safe_name = re.sub(r"[^\w.\- ]", "_", Path(filename).name)[:200]
+    dv = DatasetVersion(version=_next_version(db), name=name or safe_name, description=description,
+                        source_file=safe_name, file_sha256=sha, source_type="upload", record_count=len(rows),
+                        processing_status="importing", column_mapping=json.dumps(mapping),
+                        changes=f"Stored copy: {stored_path}")
+    db.add(dv)
+    db.flush()
+
+    from backend.app.collection.dates import parse_date
+
+    def get(row, key):
+        col = mapping.get(key)
+        v = row.get(col) if col else None
+        if v is None:
+            return None
+        v = str(v).strip()
+        return v or None
+
+    records = []
+    for i, row in enumerate(rows, start=1):
+        pub = parse_date(get(row, "published_at"), "dataset column") if get(row, "published_at") else None
+        records.append(IncomingRecord(
+            text=get(row, "text") or "", origin="dataset", role=(get(row, "text_role") or default_role).lower(),
+            source_name=get(row, "source") or safe_name, source_type=get(row, "source_type") or "dataset",
+            source_url=get(row, "source_url"), published_at=pub.value if pub else None,
+            state=get(row, "state"), district=get(row, "district"),
+            dataset_version_id=dv.id, original_csv_id=get(row, "id") or str(i),
+            scheme=get(row, "scheme"), intent=get(row, "intent"), awareness_gap=get(row, "awareness_gap"),
+            gap_type=get(row, "gap_type"), split=get(row, "split"), confidence=get(row, "confidence"),
+            notes=get(row, "notes"), is_synthetic=(get(row, "is_synthetic") or "").lower() in TRUE_VALUES,
+            row_number=i,
+        ))
+    result = ingest_records(db, records, persist_duplicates=True, commit=False)
+    dv.valid_records = len(result.stored) - len(result.duplicates)
+    dv.duplicate_records = len(result.duplicates)
+    dv.rejected_records = len(result.rejected)
+    dv.rejections = json.dumps([{"row": r, "reason": why} for r, why in result.rejected[:200]])
+    dv.processing_status = "imported"
+    job = ProcessingJob(job_type="nlp_process", status="pending", dataset_version_id=dv.id,
+                        total_items=len(result.stored),
+                        params=json.dumps({"dataset_version_id": dv.id, "cluster_scope": "dataset"}))
+    db.add(job)
+    db.add(AuditLog(action="dataset_import", entity_type="dataset", entity_id=str(dv.id), user="admin",
+                    description=f"Imported {safe_name} as {dv.version}: {len(rows)} rows, "
+                                f"{dv.valid_records} unique, {dv.duplicate_records} duplicates, "
+                                f"{dv.rejected_records} rejected"))
+    db.commit()
+    return dv, job, {"rows": len(rows), "mapping": mapping, **result.summary()}

@@ -1,18 +1,68 @@
-version: '3.8'
+# Full stack: PostgreSQL + migrations + API + worker + UI.
+#   cp .env.example .env   # set ADMIN_API_KEY and POSTGRES_PASSWORD
+#   docker compose up --build
+# Seed reference data and the labelled dataset once:
+#   docker compose run --rm api python -m backend.app.seed
+
+x-backend: &backend
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-gapminer}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-welfare_awareness}
+    HF_HUB_OFFLINE: "1"
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  volumes:
+    - uploads:/app/data/uploads
 
 services:
   db:
-    image: postgres:15-alpine
-    container_name: welfare_db
-    restart: always
+    image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-gapminer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-welfare_awareness}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gapminer}"]
+      interval: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-gapminer}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-welfare_awareness}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *backend
+    restart: unless-stopped
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+
+  worker:
+    <<: *backend
+    restart: unless-stopped
+    command: ["python", "-m", "backend.worker"]
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    depends_on: [api]
 
 volumes:
   postgres_data:
+  uploads:

@@ -1,0 +1,11 @@
+venv/
+.env
+*.db
+*.db-*
+backups/
+frontend/
+node_modules/
+.git/
+__pycache__/
+.pytest_cache/
+data/uploads/*

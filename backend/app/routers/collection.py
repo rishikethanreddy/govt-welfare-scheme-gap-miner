@@ -1,333 +1,274 @@
 """
-Collection API — campaign management, source registration, collection execution, diagnostics.
+Collection API — campaigns (jobs), live progress via Server-Sent Events, worker
+status and the scheduler (autopilot).
+
+Campaigns are executed by the worker process (python -m backend.worker); the API
+only queues, cancels and reports. Progress, events and the live record feed are
+read from the database, so they reflect exactly what the worker persisted.
 """
 
-from datetime import datetime, timezone
-from typing import List, Optional
-from fastapi import APIRouter, Depends, Query, BackgroundTasks
-from sqlalchemy.orm import Session
+import asyncio
+import json
+from datetime import timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
-from backend.app.database import get_db
-from backend.app.models.crawl import CrawlUrl, CrawlPage, CollectionCampaign
-from backend.app.models.source import Source, SourceRun
+from backend.app.database import SessionLocal, get_db
+from backend.app.models.audit import AuditLog
+from backend.app.models.coltypes import utcnow
+from backend.app.models.crawl import (ACTIVE_CAMPAIGN_STATUSES, TERMINAL_CAMPAIGN_STATUSES, CollectionCampaign,
+                                      CollectionEvent, CrawlUrl)
 from backend.app.models.document import Document
-from backend.app.services.crawl_engine import CollectionOrchestrator, SOURCE_REGISTRY, SCHEME_TOPICS
+from backend.app.models.embedding import SystemState
+from backend.app.models.source import Source, SourceRun
+from backend.app.security import require_admin
 
-router = APIRouter(prefix="/api/collection", tags=["collection"])
+router = APIRouter(prefix="/api/collection", tags=["Collection"])
 
 
-# ── Campaign Management ────────────────────────────────────────────────
-
-@router.post("/campaigns")
-def create_campaign(
-    name: str = Query(...),
-    schemes: Optional[str] = Query(None, description="Comma-separated scheme names"),
-    max_urls: int = Query(5000),
-    max_depth: int = Query(3),
-    max_pages_per_source: int = Query(200),
-    db: Session = Depends(get_db),
-):
-    """Create a new collection campaign."""
-    scheme_list = [s.strip() for s in schemes.split(",")] if schemes else None
-    orch = CollectionOrchestrator(db)
-    campaign = orch.create_campaign(
-        name=name, schemes=scheme_list,
-        max_urls=max_urls, max_depth=max_depth,
-        max_pages_per_source=max_pages_per_source,
-    )
+def campaign_dict(c: CollectionCampaign) -> dict:
+    end = c.finished_at or (utcnow() if c.started_at and c.status in ACTIVE_CAMPAIGN_STATUSES else None)
     return {
-        "id": campaign.id,
-        "name": campaign.name,
-        "status": campaign.status,
-        "schemes": campaign.schemes,
-        "max_urls": campaign.max_urls,
+        "id": c.id, "name": c.name, "status": c.status, "stage": c.stage, "trigger": c.trigger,
+        "source_ids": c.source_ids, "max_pages_per_source": c.max_pages_per_source, "max_depth": c.max_depth,
+        "error_message": c.error_message,
+        "metrics": {k: getattr(c, k) for k in (
+            "urls_discovered", "urls_accepted", "urls_processed", "urls_failed", "urls_blocked", "urls_unchanged",
+            "pages_downloaded", "pages_useful", "records_extracted", "records_duplicate", "records_rejected",
+            "records_final", "records_processed")},
+        "created_at": c.created_at, "crawl_started_at": c.started_at, "crawl_finished_at": c.finished_at,
+        "heartbeat_at": c.heartbeat_at,
+        "elapsed_seconds": round((end - c.started_at).total_seconds()) if c.started_at and end else None,
     }
 
 
+def _event(e: CollectionEvent) -> dict:
+    return {"id": e.id, "kind": e.kind, "level": e.level, "message": e.message, "url": e.url,
+            "source_id": e.source_id, "document_id": e.document_id, "created_at": e.created_at}
+
+
+class CampaignCreate(BaseModel):
+    name: str = Field(..., min_length=3, max_length=200)
+    source_ids: Optional[list[int]] = None
+    max_pages_per_source: int = Field(20, ge=1, le=200)
+    max_depth: int = Field(1, ge=0, le=3)
+
+
+@router.post("/campaigns")
+def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), who: str = Depends(require_admin)):
+    if body.source_ids:
+        found = db.query(Source).filter(Source.id.in_(body.source_ids)).all()
+        unusable = [s.name for s in found if not s.active or s.policy_status != "allowed"]
+        if len(found) != len(set(body.source_ids)):
+            raise HTTPException(422, "One or more source ids do not exist")
+        if unusable:
+            raise HTTPException(409, f"Sources not enabled for collection: {', '.join(unusable)}")
+    c = CollectionCampaign(name=body.name, source_ids=body.source_ids, max_pages_per_source=body.max_pages_per_source,
+                           max_depth=body.max_depth, status="queued", trigger="manual")
+    db.add(c)
+    db.add(AuditLog(action="campaign_queued", entity_type="campaign", user=who, description=f"Queued '{body.name}'"))
+    db.commit()
+    return campaign_dict(c)
+
+
 @router.get("/campaigns")
-def list_campaigns(db: Session = Depends(get_db)):
-    """List all collection campaigns."""
-    campaigns = db.query(CollectionCampaign).order_by(CollectionCampaign.created_at.desc()).all()
-    return [
-        {
-            "id": c.id,
-            "name": c.name,
-            "status": c.status,
-            "urls_discovered": c.urls_discovered,
-            "urls_accepted": c.urls_accepted,
-            "pages_downloaded": c.pages_downloaded,
-            "pages_useful": c.pages_useful,
-            "records_extracted": c.records_extracted,
-            "records_duplicate": c.records_duplicate,
-            "records_rejected": c.records_rejected,
-            "records_final": c.records_final,
-            "started_at": c.started_at,
-            "finished_at": c.finished_at,
-            "created_at": c.created_at,
-        }
-        for c in campaigns
-    ]
+def list_campaigns(include_archived: bool = False, limit: int = Query(50, ge=1, le=500), db: Session = Depends(get_db)):
+    q = db.query(CollectionCampaign)
+    if not include_archived:
+        q = q.filter(CollectionCampaign.status != "archived")
+    archived = db.query(func.count(CollectionCampaign.id)).filter(CollectionCampaign.status == "archived").scalar()
+    return {"items": [campaign_dict(c) for c in q.order_by(CollectionCampaign.id.desc()).limit(limit).all()],
+            "archived_count": archived}
 
 
 @router.get("/campaigns/{campaign_id}")
 def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
-    """Get campaign details with funnel diagnostics."""
-    orch = CollectionOrchestrator(db)
-    return orch.get_campaign_funnel(campaign_id)
+    c = db.get(CollectionCampaign, campaign_id)
+    if c is None:
+        raise HTTPException(404, "Campaign not found")
+    runs = db.query(SourceRun, Source.name).join(Source, Source.id == SourceRun.source_id) \
+        .filter(SourceRun.campaign_id == c.id).order_by(SourceRun.id).all()
+    url_status = dict(db.query(CrawlUrl.status, func.count(CrawlUrl.id)).filter(CrawlUrl.campaign_id == c.id)
+                      .group_by(CrawlUrl.status).all())
+    return {**campaign_dict(c), "url_status": url_status,
+            "source_runs": [{"source_id": r.source_id, "source_name": n, "status": r.status, "started_at": r.started_at,
+                             "finished_at": r.finished_at, "successful": r.successful, "failed": r.failed,
+                             "blocked": r.blocked, "records_accepted": r.records_accepted,
+                             "duplicates": r.duplicates_found, "rejected": r.records_rejected,
+                             "error": r.error_message} for r, n in runs]}
 
 
-@router.post("/campaigns/{campaign_id}/run")
-def run_campaign(campaign_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Execute a collection campaign (runs in background)."""
-    campaign = db.query(CollectionCampaign).filter(CollectionCampaign.id == campaign_id).first()
-    if not campaign:
-        return {"error": "Campaign not found"}
-    if campaign.status in ("collecting", "discovering", "processing"):
-        return {"error": "Campaign is already running"}
-
-    # Run synchronously for now (can be moved to background worker)
-    orch = CollectionOrchestrator(db)
-    result = orch.run_campaign(campaign_id)
-    return result
+@router.get("/campaigns/{campaign_id}/events")
+def campaign_events(campaign_id: int, after_id: int = 0, limit: int = Query(200, ge=1, le=1000),
+                    db: Session = Depends(get_db)):
+    ev = db.query(CollectionEvent).filter(CollectionEvent.campaign_id == campaign_id, CollectionEvent.id > after_id) \
+        .order_by(CollectionEvent.id).limit(limit).all()
+    return [_event(e) for e in ev]
 
 
-@router.post("/campaigns/{campaign_id}/run-async")
-def run_campaign_async(campaign_id: int, db: Session = Depends(get_db)):
-    """Queue a campaign for background execution by the decoupled worker."""
-    campaign = db.query(CollectionCampaign).filter(CollectionCampaign.id == campaign_id).first()
-    if not campaign:
-        return {"error": "Campaign not found"}
-
-    campaign.status = "pending"
-    db.commit()
-
-    return {"status": "queued", "campaign_id": campaign_id}
-
-
-# ── Source Management ──────────────────────────────────────────────────
-
-@router.post("/register-all-sources")
-def register_all_sources(db: Session = Depends(get_db)):
-    """Register all 60+ sources from the expanded registry."""
-    orch = CollectionOrchestrator(db)
-    sources = orch.register_all_sources()
-    return {
-        "registered": len(sources),
-        "sources": [
-            {"id": s.id, "name": s.name, "policy_status": s.policy_status, "active": s.active}
-            for s in sources
-        ]
-    }
+@router.get("/campaigns/{campaign_id}/urls")
+def campaign_urls(campaign_id: int, status: Optional[str] = None, limit: int = Query(100, ge=1, le=500),
+                  db: Session = Depends(get_db)):
+    q = db.query(CrawlUrl).filter(CrawlUrl.campaign_id == campaign_id)
+    if status:
+        q = q.filter(CrawlUrl.status == status)
+    return [{"id": u.id, "url": u.url, "status": u.status, "http_status": u.http_status, "depth": u.depth,
+             "discovery_method": u.discovery_method, "records_extracted": u.records_extracted,
+             "error": u.error_message, "last_attempt_at": u.last_attempt_at}
+            for u in q.order_by(CrawlUrl.id.desc()).limit(limit).all()]
 
 
-@router.get("/source-registry")
-def get_source_registry():
-    """Get the full source registry (before registration)."""
-    categories = {}
-    for src in SOURCE_REGISTRY:
-        cat = src.get("category", "uncategorized")
-        if cat not in categories:
-            categories[cat] = []
-        categories[cat].append({
-            "name": src["name"],
-            "url": src["url"],
-            "source_type": src["source_type"],
-            "scraper_type": src["scraper_type"],
-            "priority": src.get("priority", 5),
-        })
-    return {
-        "total_sources": len(SOURCE_REGISTRY),
-        "categories": categories,
-    }
-
-
-@router.get("/schemes")
-def get_available_schemes():
-    """Get all schemes with their topic families."""
-    return {
-        scheme: {
-            "topics_en": topics.get("en", []),
-            "topics_hi": topics.get("hi", []),
-            "total_topics": sum(len(v) for v in topics.values()),
-        }
-        for scheme, topics in SCHEME_TOPICS.items()
-    }
-
-
-# ── Diagnostics ────────────────────────────────────────────────────────
-
-@router.get("/overview")
-def collection_overview(db: Session = Depends(get_db)):
-    """Global collection dashboard metrics."""
-    total_sources = db.query(func.count(Source.id)).filter(Source.active == True).scalar() or 0
-    total_urls = db.query(func.count(CrawlUrl.id)).scalar() or 0
-    total_pages = db.query(func.count(CrawlPage.id)).scalar() or 0
-    total_documents = db.query(func.count(Document.id)).filter(Document.is_synthetic == False).scalar() or 0
-    total_campaigns = db.query(func.count(CollectionCampaign.id)).scalar() or 0
-
-    # URL status breakdown
-    url_statuses = dict(
-        db.query(CrawlUrl.status, func.count(CrawlUrl.id))
-        .group_by(CrawlUrl.status).all()
-    )
-
-    # Records by source
-    records_by_source = (
-        db.query(Source.name, func.count(Document.id))
-        .join(Document, Document.source_id == Source.id)
-        .group_by(Source.name)
-        .order_by(func.count(Document.id).desc())
-        .limit(20)
-        .all()
-    )
-
-    # Records by scheme
-    records_by_scheme = (
-        db.query(Document.scheme_name, func.count(Document.id))
-        .filter(Document.scheme_name != None)
-        .group_by(Document.scheme_name)
-        .order_by(func.count(Document.id).desc())
-        .all()
-    )
-
-    return {
-        "active_sources": total_sources,
-        "total_urls_discovered": total_urls,
-        "total_pages_collected": total_pages,
-        "total_documents": total_documents,
-        "total_campaigns": total_campaigns,
-        "url_status_breakdown": url_statuses,
-        "records_by_source": [{"source": s, "count": c} for s, c in records_by_source],
-        "records_by_scheme": [{"scheme": s or "Unknown", "count": c} for s, c in records_by_scheme],
-    }
-
-
-@router.get("/funnel")
-def pipeline_funnel(db: Session = Depends(get_db)):
-    """Global pipeline diagnostic funnel — shows where records are gained/lost."""
-    urls_discovered = db.query(func.count(CrawlUrl.id)).scalar() or 0
-    urls_queued = db.query(func.count(CrawlUrl.id)).filter(CrawlUrl.status == "queued").scalar() or 0
-    urls_success = db.query(func.count(CrawlUrl.id)).filter(CrawlUrl.status == "success").scalar() or 0
-    urls_failed = db.query(func.count(CrawlUrl.id)).filter(CrawlUrl.status == "failed").scalar() or 0
-    urls_blocked = db.query(func.count(CrawlUrl.id)).filter(CrawlUrl.status == "blocked").scalar() or 0
-
-    pages_total = db.query(func.count(CrawlPage.id)).scalar() or 0
-    pages_useful = db.query(func.count(CrawlPage.id)).filter(CrawlPage.has_useful_content == True).scalar() or 0
-
-    total_records = db.query(func.count(Document.id)).filter(Document.is_synthetic == False).scalar() or 0
-    duplicate_records = db.query(func.count(Document.id)).filter(Document.is_duplicate == True).scalar() or 0
-
-    return {
-        "funnel": [
-            {"stage": "URLs Discovered", "count": urls_discovered},
-            {"stage": "URLs Queued", "count": urls_queued},
-            {"stage": "URLs Successfully Fetched", "count": urls_success},
-            {"stage": "URLs Failed", "count": urls_failed, "delta": True},
-            {"stage": "URLs Blocked", "count": urls_blocked, "delta": True},
-            {"stage": "Pages Downloaded", "count": pages_total},
-            {"stage": "Pages With Useful Content", "count": pages_useful},
-            {"stage": "Total Records (incl. dupes)", "count": total_records + duplicate_records},
-            {"stage": "Duplicates", "count": duplicate_records, "delta": True},
-            {"stage": "Final Unique Records", "count": total_records, "highlight": True},
-        ],
-    }
-
-
-@router.get("/live-feed")
-def live_feed(db: Session = Depends(get_db)):
-    """Real-time feed of the scraping process."""
-    # Recent URLs
-    recent_urls = (
-        db.query(CrawlUrl)
-        .order_by(CrawlUrl.created_at.desc())
-        .limit(10)
-        .all()
-    )
-    
-    # Recent Documents
-    recent_documents = (
-        db.query(Document)
-        .order_by(Document.collected_at.desc())
-        .limit(10)
-        .all()
-    )
-    
-    # Active Campaigns
-    active_campaigns = (
-        db.query(CollectionCampaign)
-        .filter(CollectionCampaign.status.in_(["pending", "discovering", "collecting"]))
-        .all()
-    )
-    
-    # Global Stats
-    total_docs = db.query(func.count(Document.id)).scalar() or 0
-    total_gaps = db.query(func.count(Document.id)).filter(func.lower(Document.awareness_gap) == "yes").scalar() or 0
-    
-    return {
-        "stats": {
-            "total_documents": total_docs,
-            "total_gaps": total_gaps
-        },
-        "recent_urls": [
-            {
-                "url": u.url,
-                "status": u.status,
-                "time": u.created_at,
-            }
-            for u in recent_urls
-        ],
-        "recent_documents": [
-            {
-                "text": d.original_text,
-                "scheme": d.scheme_name,
-                "state": d.state,
-                "district": d.district,
-                "intent": d.intent,
-                "gap": d.awareness_gap,
-                "gap_type": d.gap_type,
-                "source": d.source_name,
-                "time": d.collected_at,
-            }
-            for d in recent_documents
-        ],
-        "active_campaigns": [
-            {
-                "id": c.id,
-                "name": c.name,
-                "status": c.status,
-                "urls_discovered": c.urls_discovered,
-                "urls_accepted": c.urls_accepted,
-                "records_final": c.records_final,
-            }
-            for c in active_campaigns
-        ]
-    }
-
-
-@router.get("/worker-status")
-def worker_status(db: Session = Depends(get_db)):
-    """Returns the status of the background worker / auto-pilot."""
-    import os
-    
-    is_auto_pilot = os.path.exists(".autopilot")
-    
-    active_campaigns = db.query(func.count(CollectionCampaign.id)).filter(
-        CollectionCampaign.status.in_(["pending", "discovering", "collecting"])
-    ).scalar() or 0
-    
-    return {
-        "auto_pilot_enabled": is_auto_pilot,
-        "active_campaigns": active_campaigns,
-        "status": "idle" if active_campaigns == 0 and not is_auto_pilot else "running",
-    }
-
-@router.post("/toggle-autopilot")
-def toggle_autopilot(enable: bool = Query(...)):
-    import os
-    if enable:
-        open(".autopilot", "w").close()
+@router.post("/campaigns/{campaign_id}/cancel")
+def cancel_campaign(campaign_id: int, db: Session = Depends(get_db), who: str = Depends(require_admin)):
+    c = db.get(CollectionCampaign, campaign_id)
+    if c is None:
+        raise HTTPException(404, "Campaign not found")
+    if c.status == "queued":
+        c.status, c.finished_at = "cancelled", utcnow()
+    elif c.status == "running":
+        c.status = "cancel_requested"
     else:
-        if os.path.exists(".autopilot"):
-            os.remove(".autopilot")
-    return {"auto_pilot_enabled": enable}
+        raise HTTPException(409, f"Campaign is already {c.status}")
+    db.add(AuditLog(action="campaign_cancel", entity_type="campaign", entity_id=str(c.id), user=who,
+                    description=f"Cancellation requested for '{c.name}'"))
+    db.commit()
+    return campaign_dict(c)
+
+
+@router.post("/campaigns/{campaign_id}/retry-failed")
+def retry_failed(campaign_id: int, db: Session = Depends(get_db), who: str = Depends(require_admin)):
+    """Re-queue failed URLs of a finished campaign and run it again (resumes the same frontier)."""
+    c = db.get(CollectionCampaign, campaign_id)
+    if c is None:
+        raise HTTPException(404, "Campaign not found")
+    if c.status in ACTIVE_CAMPAIGN_STATUSES:
+        raise HTTPException(409, "Campaign is still active")
+    n = db.query(CrawlUrl).filter(CrawlUrl.campaign_id == c.id, CrawlUrl.status == "failed") \
+        .update({"status": "queued", "error_message": None})
+    if n == 0:
+        raise HTTPException(409, "No failed URLs to retry")
+    db.query(SourceRun).filter(SourceRun.campaign_id == c.id).update({"status": "queued"})
+    c.status, c.finished_at = "queued", None
+    c.urls_processed -= n
+    c.urls_failed = max(0, c.urls_failed - n)
+    db.add(AuditLog(action="campaign_retry", entity_type="campaign", entity_id=str(c.id), user=who,
+                    description=f"Re-queued {n} failed URLs"))
+    db.commit()
+    return {**campaign_dict(c), "requeued_urls": n}
+
+
+# ── Worker / scheduler status ─────────────────────────────────────────────
+
+def _state(db: Session, key: str) -> Optional[str]:
+    row = db.get(SystemState, key)
+    return row.value if row else None
+
+
+def worker_status_dict(db: Session) -> dict:
+    hb = db.get(SystemState, "worker:heartbeat")
+    alive = bool(hb and hb.updated_at and utcnow() - hb.updated_at < timedelta(seconds=45))
+    active = db.query(CollectionCampaign).filter(CollectionCampaign.status.in_(ACTIVE_CAMPAIGN_STATUSES)) \
+        .order_by(CollectionCampaign.id).all()
+    return {"worker_alive": alive, "last_heartbeat": hb.updated_at if hb else None,
+            "worker_info": json.loads(hb.value) if hb and hb.value else None,
+            "autopilot_enabled": _state(db, "autopilot:enabled") == "true",
+            "active_campaigns": [campaign_dict(c) for c in active]}
+
+
+@router.get("/status")
+def worker_status(db: Session = Depends(get_db)):
+    return worker_status_dict(db)
+
+
+@router.post("/autopilot")
+def set_autopilot(enabled: bool, db: Session = Depends(get_db), who: str = Depends(require_admin)):
+    row = db.get(SystemState, "autopilot:enabled") or SystemState(key="autopilot:enabled")
+    row.value = "true" if enabled else "false"
+    db.add(row)
+    db.add(AuditLog(action="autopilot", entity_type="system", user=who,
+                    description=f"Scheduled collection {'enabled' if enabled else 'disabled'}"))
+    db.commit()
+    return worker_status_dict(db)
+
+
+@router.get("/feed")
+def live_feed(after_id: int = 0, limit: int = Query(30, ge=1, le=200), db: Session = Depends(get_db)):
+    """Most recently persisted and processed live records (newest first)."""
+    q = db.query(Document).filter(Document.origin == "live", Document.is_demo == False,  # noqa: E712
+                                  Document.processing_status == "completed", Document.id > after_id)
+    return [{"id": d.id, "text": d.original_text, "scheme": d.scheme_name, "text_role": d.text_role,
+             "intent": d.intent, "awareness_gap": d.awareness_gap, "gap_type": d.gap_type,
+             "language": d.language, "source_name": d.source_name, "source_url": d.source_url,
+             "source_published_at": d.source_published_at, "collected_at": d.collected_at,
+             "processed_at": d.processed_at, "campaign_id": d.campaign_id, "is_duplicate": d.is_duplicate}
+            for d in q.order_by(Document.id.desc()).limit(limit).all()]
+
+
+# ── Server-Sent Events ────────────────────────────────────────────────────
+
+def _snapshot(campaign_id: Optional[int], after_event: int, after_doc: int) -> dict:
+    db = SessionLocal()
+    try:
+        out = {"status": worker_status_dict(db)}
+        ev_q = db.query(CollectionEvent).filter(CollectionEvent.id > after_event)
+        if campaign_id:
+            c = db.get(CollectionCampaign, campaign_id)
+            out["campaign"] = campaign_dict(c) if c else None
+            ev_q = ev_q.filter(CollectionEvent.campaign_id == campaign_id)
+        out["events"] = [_event(e) for e in ev_q.order_by(CollectionEvent.id).limit(100).all()]
+        out["records"] = live_feed(after_id=after_doc, limit=20, db=db) if after_doc >= 0 else []
+        return out
+    finally:
+        db.close()
+
+
+def _sse(event: str, data) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+async def _stream(request: Request, campaign_id: Optional[int]):
+    import time
+    last_event = int(request.query_params.get("after_event", 0))
+    last_doc = int(request.query_params.get("after_record", 0))
+    # Connections are recycled after `timeout` seconds; EventSource reconnects automatically
+    # and resumes from the last ids it saw (sent back as after_event / after_record).
+    deadline = time.monotonic() + min(max(float(request.query_params.get("timeout", 600)), 1), 3600)
+    idle = 0
+    while not await request.is_disconnected() and time.monotonic() < deadline:
+        snap = await run_in_threadpool(_snapshot, campaign_id, last_event, last_doc)
+        yield _sse("status", snap["status"])
+        if campaign_id:
+            yield _sse("campaign", snap["campaign"])
+        for e in snap["events"]:
+            last_event = max(last_event, e["id"])
+            yield _sse("log", e)
+        for r in reversed(snap["records"]):
+            last_doc = max(last_doc, r["id"])
+            yield _sse("record", r)
+        done = campaign_id and snap.get("campaign") and snap["campaign"]["status"] in TERMINAL_CAMPAIGN_STATUSES
+        idle = idle + 1 if done and not snap["events"] else 0
+        if done and idle >= 2:
+            yield _sse("end", {"status": snap["campaign"]["status"]})
+            return
+        await asyncio.sleep(1.5)
+    yield _sse("reconnect", {"after_event": last_event, "after_record": last_doc})
+
+
+SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
+
+
+@router.get("/stream")
+async def stream_all(request: Request):
+    """Global live stream: worker status, all new collection events and newly processed records."""
+    return StreamingResponse(_stream(request, None), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+@router.get("/campaigns/{campaign_id}/stream")
+async def stream_campaign(campaign_id: int, request: Request):
+    return StreamingResponse(_stream(request, campaign_id), media_type="text/event-stream", headers=SSE_HEADERS)

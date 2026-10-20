@@ -8,7 +8,8 @@ from backend.app.models.cluster import Cluster, DocumentCluster
 from backend.app.models.geography import GeographicEntity
 from backend.app.models.model_version import ModelVersion
 from backend.app.models.audit import AuditLog
-from backend.app.models.crawl import CrawlUrl, CrawlPage, CollectionCampaign
+from backend.app.models.crawl import CrawlUrl, CrawlPage, CollectionCampaign, CollectionEvent
+from backend.app.models.embedding import DocumentEmbedding, SystemState
 
 __all__ = [
     "Document",
@@ -25,5 +26,7 @@ __all__ = [
     "CrawlUrl",
     "CrawlPage",
     "CollectionCampaign",
+    "CollectionEvent",
+    "DocumentEmbedding",
+    "SystemState",
 ]
-

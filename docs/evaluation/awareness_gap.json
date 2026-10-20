@@ -1,0 +1,363 @@
+{
+  "task": "awareness_gap",
+  "labels": [
+    "no",
+    "yes"
+  ],
+  "selected": "embedding_logreg",
+  "uncertainty_threshold": 0.55,
+  "training_records": {
+    "original_en": 106,
+    "translated_hi": 105,
+    "translated_hi_latn": 106,
+    "live_ai": 214
+  },
+  "class_distribution": {
+    "train": {
+      "no": 217,
+      "yes": 213
+    },
+    "val": {
+      "yes": 59,
+      "no": 42
+    },
+    "test": {
+      "yes": 51,
+      "no": 50
+    }
+  },
+  "validation_comparison": {
+    "majority_baseline": {
+      "n": 101,
+      "accuracy": 0.4158,
+      "macro_f1": 0.2937,
+      "weighted_f1": 0.2443
+    },
+    "tfidf_logreg": {
+      "n": 101,
+      "accuracy": 0.6931,
+      "macro_f1": 0.6887,
+      "weighted_f1": 0.6949
+    },
+    "embedding_logreg": {
+      "n": 101,
+      "accuracy": 0.7426,
+      "macro_f1": 0.7395,
+      "weighted_f1": 0.7443
+    },
+    "ensemble_tfidf_embedding": {
+      "n": 101,
+      "accuracy": 0.703,
+      "macro_f1": 0.6963,
+      "weighted_f1": 0.7039
+    }
+  },
+  "test": {
+    "n": 101,
+    "accuracy": 0.6535,
+    "macro_precision": 0.6548,
+    "macro_recall": 0.6529,
+    "macro_f1": 0.6522,
+    "weighted_f1": 0.6524,
+    "per_class": {
+      "no": {
+        "precision": 0.6666666666666666,
+        "recall": 0.6,
+        "f1-score": 0.631578947368421,
+        "support": 50.0
+      },
+      "yes": {
+        "precision": 0.6428571428571429,
+        "recall": 0.7058823529411765,
+        "f1-score": 0.6728971962616822,
+        "support": 51.0
+      },
+      "accuracy": 0.6534653465346535,
+      "macro avg": {
+        "precision": 0.6547619047619048,
+        "recall": 0.6529411764705882,
+        "f1-score": 0.6522380718150516,
+        "support": 101.0
+      },
+      "weighted avg": {
+        "precision": 0.6546440358321547,
+        "recall": 0.6534653465346535,
+        "f1-score": 0.6524426176016519,
+        "support": 101.0
+      }
+    },
+    "confusion_matrix": {
+      "labels": [
+        "no",
+        "yes"
+      ],
+      "matrix": [
+        [
+          30,
+          20
+        ],
+        [
+          15,
+          36
+        ]
+      ]
+    }
+  },
+  "test_by_slice": {
+    "original_en": {
+      "n": 21,
+      "accuracy": 0.619,
+      "macro_f1": 0.5333,
+      "weighted_f1": 0.5619
+    },
+    "translated_hi": {
+      "n": 21,
+      "accuracy": 0.7619,
+      "macro_f1": 0.7407,
+      "weighted_f1": 0.7513
+    },
+    "translated_hi_latn": {
+      "n": 21,
+      "accuracy": 0.5714,
+      "macro_f1": 0.5553,
+      "weighted_f1": 0.5674
+    },
+    "live_ai": {
+      "n": 38,
+      "accuracy": 0.6579,
+      "macro_f1": 0.6125,
+      "weighted_f1": 0.6405
+    }
+  },
+  "test_baseline": {
+    "n": 101,
+    "accuracy": 0.505,
+    "macro_f1": 0.3355,
+    "weighted_f1": 0.3388
+  },
+  "grouped_cv": {
+    "folds": 5,
+    "grouping": "record (with its translations) / source page",
+    "macro_f1_mean": 0.5954,
+    "macro_f1_std": 0.0396,
+    "accuracy_mean": 0.6418
+  },
+  "errors": [
+    {
+      "text": "Our installment was credited this cycle in Samba district, do we need to reapply for the next one?",
+      "slice": "original_en",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "I insured my crop but it was damaged for three seasons in a row and I never got a claim, why does this keep happening?",
+      "slice": "original_en",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "What is the installment breakdown for PMAY-G, do I get all the money at once or in parts as I build?",
+      "slice": "original_en",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "How do I even apply for a new MGNREGA job card if I've never had one before?",
+      "slice": "original_en",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "Which Mudra category should I apply under if I need about Rs 3 lakh for my shop, Kishor or Tarun?",
+      "slice": "original_en",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "What documents does my nominee actually need to submit to claim my PMSBY accident cover?",
+      "slice": "original_en",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "An 87-year-old pensioner in our village hasn't received his monthly pension since April and has been going to the panchayat and bank almost every day, why would a working NSAP pension suddenly stop for months?",
+      "slice": "original_en",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "Someone tried to charge me extra at the CSC to process my Vishwakarma registration, is there a helpline for that specific kind of complaint?",
+      "slice": "original_en",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "सांबा जिले में इस बार हमारी किस्त आ गई, क्या अगली किस्त के लिए हमें फिर से आवेदन करना होगा?",
+      "slice": "translated_hi",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "मैंने फसल का बीमा कराया था लेकिन लगातार तीन सीजन फसल खराब हुई और एक बार भी क्लेम नहीं मिला, ऐसा बार-बार क्यों हो रहा है?",
+      "slice": "translated_hi",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "पीएमएवाई-जी में किस्तों का बंटवारा कैसे होता है, सारा पैसा एक साथ मिलता है या घर बनने के साथ हिस्सों में?",
+      "slice": "translated_hi",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "अगर पहले कभी जॉब कार्ड नहीं बना तो नया मनरेगा जॉब कार्ड बनवाने के लिए आवेदन कैसे करें?",
+      "slice": "translated_hi",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "दुकान के लिए लगभग 3 लाख रुपये चाहिए तो मुद्रा की कौन सी श्रेणी में आवेदन करूं, किशोर या तरुण?",
+      "slice": "translated_hi",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "Samba jile me is baar hamari kist aa gayi, kya agli kist ke liye hume dobara apply karna hoga?",
+      "slice": "translated_hi_latn",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "Suna hai hamare rajya ki saari PMFBY shikayate nipat gayi, kya iska matlab hai ki ab har jagah claim 21 din me mil raha hai?",
+      "slice": "translated_hi_latn",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "Agar pehle kabhi job card nahi bana to naya MGNREGA job card banwane ke liye apply kaise kare?",
+      "slice": "translated_hi_latn",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "Dukaan ke liye lagbhag 3 lakh rupaye chahiye to Mudra ki kaunsi shreni me apply karu, Kishor ya Tarun?",
+      "slice": "translated_hi_latn",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "PMSBY ke durghatna cover ka claim karne ke liye mere nominee ko asal me kaunse kagaz jama karne honge?",
+      "slice": "translated_hi_latn",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "Hamare gaon ke 87 saal ke pensioner ko April se pension nahi mili aur wo roz panchayat aur bank ke chakkar laga rahe hai, chalti hui NSAP pension achanak mahino ke liye kyu ruk jati hai?",
+      "slice": "translated_hi_latn",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "Main pravasi mazdoor hu aur is ilake ka pakka pata proof nahi hai, kya jaha abhi reh raha hu waha PMUY connection mil sakta hai?",
+      "slice": "translated_hi_latn",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "CSC par meri Vishwakarma registration ke liye mujhse zyada paise lene ki koshish ki gayi, kya is tarah ki shikayat ke liye koi helpline hai?",
+      "slice": "translated_hi_latn",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "Suna hai desh me Mudra loan lene walo me 68% mahilaye hai, kya mahilao ke liye alag shreni hai ya sabke liye ek hi form hai?",
+      "slice": "translated_hi_latn",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "You can apply for Pradhan Mantri Awas Yojana to get your own house as per your category.",
+      "slice": "live_ai",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "सर मेरा आवास आने के बाद किसी न लिस्ट से नाम हटा दिया मेरा आधार कार्ड नम्बर [AADHAAR]",
+      "slice": "live_ai",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "Chetan Suman, you can directly apply online for Mudra Loans at udyamimitra.in",
+      "slice": "live_ai",
+      "true": "no",
+      "pred": "yes"
+    },
+    {
+      "text": "Dear sir. I want gharkool . so please tail me. whats process.",
+      "slice": "live_ai",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "Were is the form shows online pradhan Mantri havas yujana by. Click it's not showing his website",
+      "slice": "live_ai",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "I have constructed a house and applied for a loan and availed. But the banker refused to provide pmay subsidy. How I can get it? Pho;[PHONE]",
+      "slice": "live_ai",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "prime minister schme ke liya kam se kam kita rupees ka flat milage AUR USKO HE AGE BHASIVAY ME SALE KAR SAKHE HE KI NAHI AUR USKI INTEREST & KIST KITNI BANGI KITNE SAL KE LIYE LEKAR HUM USKO KIRYE PAR DE SAKHE HE YA NAHI HUMKO JAGAH KAHA MILAGI DELHI AUR AUP KAHA PHAR",
+      "slice": "live_ai",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "PM modi sir..... Mi pan 1 vrcha pasun Mumbai madhe raht ahe mala pan svtachi ghar ghyach ahe.tar yasathi online form bharaycha ahe pliz mala sanga na",
+      "slice": "live_ai",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "Sir, Kya yeh yojna gramin bharat me lagu nahi hai. kya city me hi log rahte hai. kya gaon me garib nahi hai,",
+      "slice": "live_ai",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "Pradhan mantri abas yojana mere yaha kab lagu hogi mainpri uttar pradesh",
+      "slice": "live_ai",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "Dear sir /mam if have any person idea for this yojana please send me link thanking you",
+      "slice": "live_ai",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "Mp Sir ji mare pass jankari nahi h ki kase yojna parapt kar sakta hu lko se hu 6000pe nokair karta or 1500so rs kiryae hi padta h to sir pless kuch bitye yojna ke bare m to humra bhi apna ghar ho sir pless",
+      "slice": "live_ai",
+      "true": "yes",
+      "pred": "no"
+    },
+    {
+      "text": "ayushman bhart me dusre ke rashan me kisi our ka name khul raha hai. kya yahi ayushman bhart hai .",
+      "slice": "live_ai",
+      "true": "no",
+      "pred": "yes"
+    }
+  ],
+  "test_uncertainty": {
+    "threshold": 0.55,
+    "coverage": 0.8119,
+    "accuracy_on_covered": 0.7317,
+    "unclear": 19
+  }
+}

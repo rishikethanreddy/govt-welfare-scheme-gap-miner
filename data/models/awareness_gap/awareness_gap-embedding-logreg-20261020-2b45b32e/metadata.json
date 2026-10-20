@@ -1,0 +1,56 @@
+{
+  "task": "awareness_gap",
+  "version": "awareness_gap-embedding-logreg-20261020-2b45b32e",
+  "algorithm": "embedding_logreg",
+  "labels": [
+    "no",
+    "yes"
+  ],
+  "uncertainty_threshold": 0.55,
+  "ood_similarity_threshold": 0.423,
+  "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
+  "preprocessing": "backend.app.nlp.text.model_text (NFKC, zero-width removal, lowercase, URL removal)",
+  "training_data": {
+    "files": [
+      "data/raw/welfare_awareness_dataset_with_split.csv",
+      "data/raw/translations_hi.csv",
+      "data/raw/translations_hi_latn.csv",
+      "data/raw/live_comments_ai_annotated.csv"
+    ],
+    "sha256": "2b45b32e6ce20fa1bf83a7a9d28b5777b3f57dbcee533f37dcd6ad9742d09e8d",
+    "train_plus_val_records": 531
+  },
+  "trained_at": "2026-10-20T16:12:09.370438+00:00",
+  "test_metrics": {
+    "n": 101,
+    "accuracy": 0.6535,
+    "macro_f1": 0.6522,
+    "weighted_f1": 0.6524
+  },
+  "test_by_slice": {
+    "original_en": {
+      "n": 21,
+      "accuracy": 0.619,
+      "macro_f1": 0.5333,
+      "weighted_f1": 0.5619
+    },
+    "translated_hi": {
+      "n": 21,
+      "accuracy": 0.7619,
+      "macro_f1": 0.7407,
+      "weighted_f1": 0.7513
+    },
+    "translated_hi_latn": {
+      "n": 21,
+      "accuracy": 0.5714,
+      "macro_f1": 0.5553,
+      "weighted_f1": 0.5674
+    },
+    "live_ai": {
+      "n": 38,
+      "accuracy": 0.6579,
+      "macro_f1": 0.6125,
+      "weighted_f1": 0.6405
+    }
+  }
+}

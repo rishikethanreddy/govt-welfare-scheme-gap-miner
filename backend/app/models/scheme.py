@@ -5,10 +5,10 @@ Schemes are NOT hard-coded in NLP code. Admins can add/edit schemes
 without modifying source code.
 """
 
-from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Text, Boolean
 from sqlalchemy.orm import relationship
 from backend.app.database import Base
+from backend.app.models.coltypes import UTCDateTime, utcnow
 
 
 class Scheme(Base):
@@ -23,18 +23,15 @@ class Scheme(Base):
         doc="agriculture / housing / health / employment / financial / insurance / energy / social / other"
     )
     ministry = Column(String(200), nullable=True, doc="Responsible ministry")
-    aliases = Column(Text, nullable=True, doc="Comma-separated aliases for scheme detection")
+    aliases = Column(Text, nullable=True, doc="Comma-separated unambiguous aliases (strong matches)")
+    weak_aliases = Column(Text, nullable=True, doc="Comma-separated generic phrases, used only without a strong match")
     official_url = Column(String(2048), nullable=True)
     active = Column(Boolean, nullable=False, default=True)
     display_order = Column(Integer, nullable=True, default=0)
 
     # ── Timestamps ────────────────────────────────────────────────────────
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(
-        DateTime, nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc)
-    )
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     # ── Relationships ─────────────────────────────────────────────────────
     documents = relationship("Document", back_populates="scheme", lazy="select")

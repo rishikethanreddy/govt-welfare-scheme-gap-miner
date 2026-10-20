@@ -1,355 +1,102 @@
-# 🇮🇳 Government Welfare Scheme Gap Analysis & Awareness Miner
+# Government Welfare Scheme Awareness Gap Miner
 
-[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
-[![Next.js](https://img.shields.io/badge/Frontend-Next.js%2016-black.svg?style=flat&logo=next.js)](https://nextjs.org)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg?style=flat&logo=python)](https://python.org)
-[![React](https://img.shields.io/badge/React-19-61DAFB.svg?style=flat&logo=react)](https://react.dev)
-[![TailwindCSS](https://img.shields.io/badge/Tailwind-CSS-38B2AC.svg?style=flat&logo=tailwind-css)](https://tailwindcss.com)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+Collects public text about Indian government welfare schemes (imported datasets and permitted
+public web sources), runs it through a traceable NLP pipeline, and surfaces **recurring
+awareness-gap signals**: questions, complaints and comments indicating that people lack or
+misunderstand scheme information.
 
-An end-to-end intelligent Natural Language Processing (NLP) and Machine Learning platform designed to identify, mine, and analyze public awareness gaps, misinformation, eligibility confusion, and procedural bottlenecks across Indian Government Welfare Schemes (e.g., **PM-KISAN**, **PMFBY**, **PM-KUSUM**, **PMAY**, **Ayushman Bharat**, etc.).
+> Results describe the analysed text only. They are not estimates of population-wide awareness.
 
-The system processes citizen inquiries, grievance records, and web data through semantic clustering, intent classification, and geospatial mapping to pinpoint which regions and communities face the steepest information hurdles.
+## What it does
 
----
+| Area | Implementation |
+|---|---|
+| **Dataset workspace** | CSV/JSON upload with preview and column mapping → validation → normalization → PII redaction → exact and near-duplicate detection → NLP → embeddings → clustering. Manual labels are kept as ground truth; model predictions are stored alongside. |
+| **Live collection workspace** | Curated source registry → collection jobs run by a worker → SSRF-safe fetching (robots.txt, rate limits, retries, size and type limits) → HTML/RSS/sitemap/PDF/JSON/CSV extraction → the same ingest and NLP pipeline. Progress is streamed live over Server-Sent Events. |
+| **NLP** | Word-boundary multi-scheme detection (15 schemes); language detection; intent, awareness-gap and gap-type classifiers on a **multilingual** embedding model (English, Hindi, romanized Hindi), with a narrow uncertainty band, an out-of-distribution guard and nearest-labelled-example evidence; HDBSCAN semantic clustering; semantic search. |
+| **Timestamps** | `source_published_at` / `source_updated_at` come only from the source. `first_seen_at`, `collected_at` and `processed_at` are system times. A missing publication date stays empty and is shown as "Publication date unavailable". |
+| **Analytics** | Workspace-scoped dashboards with explicit denominators, scheme and state breakdowns, timeline, clusters, data-quality report, filtered CSV/JSON export. |
+| **Corrections** | Every record is labelled by the models; an operator can still correct a record's labels from its page, and corrections survive reprocessing. |
+| **Security** | Operator API key for all write, collection and admin endpoints (no default credential), rate limiting, upload limits, SSRF protection, PII redaction, and an audit trail. |
 
-## 📑 Table of Contents
+Documentation:
+- [Architecture & data model](docs/ARCHITECTURE.md)
+- [NLP pipeline](docs/NLP_PIPELINE.md)
+- [Data collection & source policy](docs/DATA_COLLECTION.md)
+- [Operations, API & security](docs/OPERATIONS.md)
+- [Model evaluation](docs/evaluation/EVALUATION.md) (generated)
+- [Known limitations](docs/LIMITATIONS.md)
+- [Screenshots](docs/screenshots/)
 
-- [Key Features](#-key-features)
-- [System Architecture](#-system-architecture)
-- [Project Structure](#-project-structure)
-- [Prerequisites](#-prerequisites)
-- [Quick Start Guide](#-quick-start-guide)
-  - [1. Clone the Repository](#1-clone-the-repository)
-  - [2. Configure Environment Variables](#2-configure-environment-variables)
-  - [3. Backend Setup (Python)](#3-backend-setup-python)
-  - [4. Seed the Database](#4-seed-the-database)
-  - [5. Frontend Setup (Next.js)](#5-frontend-setup-nextjs)
-- [Running the Project](#-running-the-project)
-  - [Method 1: One-Command Start (Root Orchestrator)](#method-1-one-command-start-root-orchestrator)
-  - [Method 2: Multi-Terminal Start (Recommended for Debugging)](#method-2-multi-terminal-start-recommended-for-debugging)
-  - [Method 3: Running with Docker (PostgreSQL)](#method-3-running-with-docker-postgresql)
-- [API Documentation](#-api-documentation)
-- [Troubleshooting & FAQs](#-troubleshooting--faqs)
+## Quick start (local development)
 
----
-
-## 🌟 Key Features
-
-1. **Semantic Awareness Gap Mining**:
-   - Generates 384-dimensional dense sentence embeddings using HuggingFace's `all-MiniLM-L6-v2`.
-   - Discovers latent grievance topics and awareness blind spots via unsupervised **HDBSCAN** clustering.
-   - Detects scheme associations, citizen intent (inquiry, complaint, eligibility check), and specific gap types (documentation, disbursement delay, middleman issues, portal errors).
-
-2. **Interactive Geospatial Intelligence**:
-   - Full interactive choropleth maps of India at both **State** and **District** levels powered by Leaflet & GeoJSON.
-   - Highlights high-friction zones and underserved geographic clusters.
-
-3. **Automated Multi-Source Collection Engine**:
-   - Configurable web scrapers and RSS feed ingestion pipelines for civic portals, news feeds, and official grievance feeds.
-   - Background asynchronous worker daemon (`worker.py`) that handles scheduled crawls, discovery queues, and URL processing.
-
-4. **Modern Executive Dashboard**:
-   - Built on **Next.js 16 (App Router)**, **React 19**, and **Tailwind CSS**.
-   - Dynamic charts (Recharts) covering gap distribution, scheme performance metrics, sentiment variance, and pipeline health.
-   - Dark/Light mode theme switching and responsive analytics.
-
----
-
-## 🏗 System Architecture
-
-```mermaid
-graph TD
-    A[Public Data / Grievance Inquiries / CSV Feeds] --> B[Collection Engine & Scrapers]
-    B --> C[FastAPI REST Backend]
-    C --> D[(SQLite / PostgreSQL DB)]
-    C --> E[ML / NLP Pipeline]
-    E --> E1[SentenceTransformers: all-MiniLM-L6-v2]
-    E --> E2[HDBSCAN Semantic Clustering]
-    E --> E3[Intent & Gap Classifiers]
-    E1 --> D
-    E2 --> D
-    E3 --> D
-    D --> C
-    C --> F[Next.js 16 Web Dashboard]
-    F --> G[Interactive Choropleths & Leaflet Maps]
-    F --> H[Gap Analytics & Insights Explorer]
-```
-
----
-
-## 📂 Project Structure
-
-```
-govt-welfare-scheme-gap-analysis/
-├── backend/                  # FastAPI Application
-│   ├── app/
-│   │   ├── main.py           # FastAPI entry point & lifespan handler
-│   │   ├── config.py         # Pydantic v2 application settings
-│   │   ├── database.py       # SQLAlchemy engine & session factory
-│   │   ├── seed.py           # Database seeder (15 schemes, geography, sample data)
-│   │   ├── models/           # SQLAlchemy ORM models (Scheme, Document, Cluster, etc.)
-│   │   ├── routers/          # API route controllers (dashboard, geography, schemes, etc.)
-│   │   ├── schemas/          # Pydantic request/response schemas
-│   │   └── services/         # Business logic (dataset import, crawler engine, analytics)
-│   ├── connectors/           # External feed & data connectors
-│   └── worker.py             # Asynchronous background collection worker
-├── frontend/                 # Next.js 16 App Router UI
-│   ├── src/
-│   │   ├── app/              # Next.js pages (dashboard, explorer, geography, schemes, etc.)
-│   │   ├── components/       # UI components, interactive Leaflet maps, stat cards
-│   │   └── lib/              # API clients and utilities
-│   ├── public/               # Static assets & India GeoJSON files (states & districts)
-│   └── package.json          # Frontend dependencies
-├── ml/                       # NLP & Machine Learning modules
-│   ├── awareness_gap/        # Gap classification
-│   ├── clustering/           # HDBSCAN semantic clustering
-│   ├── embeddings/           # SentenceTransformer vectorizer
-│   ├── intent/               # Citizen intent classifier
-│   ├── preprocessing/        # Text normalization & cleaning
-│   └── scheme_detection/     # Entity matching & scheme detection
-├── data/
-│   ├── raw/                  # Initial research CSV dataset (127+ classified records)
-│   ├── geographic/           # Boundary data cache
-│   ├── processed/            # Processed vectors and datasets
-│   └── uploads/              # User-uploaded dataset storage
-├── docker/                   # Docker environment configurations
-├── docker-compose.yml        # PostgreSQL service definition
-├── requirements.txt          # Python dependencies
-├── package.json              # Root orchestration scripts (concurrent dev)
-└── .env.example              # Template environment configuration
-```
-
----
-
-## 💻 Prerequisites
-
-Ensure you have the following installed on your machine:
-- **Python 3.10+** (Python 3.10, 3.11, 3.12, or 3.13)
-- **Node.js 18.x or 20.x+** and **npm**
-- **Git**
-- *(Optional)* **Docker & Docker Compose** (only required if you want PostgreSQL instead of SQLite)
-
----
-
-## 🚀 Quick Start Guide
-
-### 1. Clone the Repository
+Requirements: Python 3.11+ (tested on 3.13), Node.js 20.9+ (tested on 22).
 
 ```bash
-git clone https://github.com/rishikethanreddy/govt-welfare-scheme-gap-analysis.git
-cd govt-welfare-scheme-gap-analysis
-```
-
----
-
-### 2. Configure Environment Variables
-
-Create your local `.env` file from the provided example template:
-
-**Windows (PowerShell):**
-```powershell
-Copy-Item .env.example .env
-```
-
-**macOS / Linux:**
-```bash
-cp .env.example .env
-```
-
-> **Note:** By default, `.env` is configured to use a zero-configuration SQLite database (`welfare_awareness.db`), so you can run the project immediately without installing PostgreSQL.
-
----
-
-### 3. Backend Setup (Python)
-
-Create a Python virtual environment and install the required dependencies:
-
-**On Windows:**
-```powershell
-# Create virtual environment
+# 1. Python environment
 python -m venv venv
-
-# Activate virtual environment
-.\venv\Scripts\activate
-
-# Install dependencies
-pip install --upgrade pip
+venv\Scripts\activate            # Windows   (macOS/Linux: source venv/bin/activate)
 pip install -r requirements.txt
-```
 
-**On macOS / Linux:**
-```bash
-# Create virtual environment
-python3 -m venv venv
+# 2. Configuration
+cp .env.example .env             # then set ADMIN_API_KEY (see below)
+python -c "import secrets; print(secrets.token_urlsafe(32))"
 
-# Activate virtual environment
-source venv/bin/activate
-
-# Install dependencies
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
----
-
-### 4. Seed the Database
-
-Populate the database with the **15 core welfare schemes**, Indian **states/UTs geographic boundaries**, and the **initial research dataset**:
-
-```bash
-# With venv activated:
-python -m backend.app.seed
-```
-
-You should see:
-```text
-============================================================
-  Seeding Database
-============================================================
-  [OK] Database tables created/verified
-  [OK] Seeded 15 welfare schemes
-  [OK] Seeded 37 states/UTs + India
-  [OK] Registered initial CSV source
-  [OK] Imported dataset v1.0: 127 records
-============================================================
-  [OK] Seed complete!
-============================================================
-```
-
----
-
-### 5. Frontend Setup (Next.js)
-
-Install the frontend dependencies:
-
-```bash
-cd frontend
+# 3. Frontend dependencies and root tooling
 npm install
-cd ..
-```
+npm --prefix frontend install
 
----
+# 4. Database schema, reference data and the labelled dataset
+npm run db:migrate               # alembic upgrade head
+npm run seed                     # schemes, states, curated sources, labelled dataset (+ NLP processing)
 
-## ⚡ Running the Project
-
-You can run the full platform using either a single orchestrator command or separate terminal windows.
-
-### Method 1: One-Command Start (Root Orchestrator)
-
-First, install the root orchestration utility (one time):
-```bash
-npm install
-```
-
-Then start Frontend + Backend + Background Worker concurrently (automatically detects your `venv` on Windows, macOS, and Linux):
-
-```bash
+# 5. Run UI (3000) + API (8000) + worker
 npm run dev
 ```
 
-> **Note:** `npm run dev` uses the built-in runner (`scripts/run-python.js`) which automatically directs Python execution through your local virtual environment (`venv`), so you don't even need to worry about path differences or manual virtualenv activation!
+Open http://localhost:3000. The API documentation is at http://localhost:8000/docs.
+To upload data, run collection or review records, click **Operator access** and enter `ADMIN_API_KEY`.
 
----
+The first run downloads the `paraphrase-multilingual-MiniLM-L12-v2` embedding model (~470 MB) from Hugging Face; it needs about 1 GB of free RAM.
+After that, `HF_HUB_OFFLINE=1` lets everything run offline.
 
-### Method 2: Multi-Terminal Start (Recommended for Debugging)
+### Useful commands
 
-Running services in separate terminals gives you clear, real-time logging for each service:
+| Command | Purpose |
+|---|---|
+| `npm test` | Backend test suite (pytest, isolated temporary database). |
+| `npm run test:frontend` | ESLint, TypeScript and the production build. |
+| `npm run train` | Retrain and evaluate the classifiers; writes `data/models/*` and `docs/evaluation/*`. |
+| `npm run reprocess` | Re-run NLP on all records (idempotent; manual and reviewed labels are kept). |
+| `npm run backup` | Consistent SQLite backup into `backups/`. |
+| `python -m backend.app.maintenance --help` | `repair-legacy`, `redact`, `cluster`, `sync-sources`. |
 
-#### 🌐 Terminal 1 — FastAPI Backend Server
+### Docker (PostgreSQL)
+
 ```bash
-# Activate your venv first
-# Windows: .\venv\Scripts\activate
-# Linux/Mac: source venv/bin/activate
-
-uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-- API will be accessible at: `http://127.0.0.1:8000`
-- Swagger Interactive Docs: `http://127.0.0.1:8000/docs`
-
-#### ⚙️ Terminal 2 — Background Scraping & Collection Worker
-```bash
-# Activate your venv first
-python -m backend.worker
+cp .env.example .env     # set ADMIN_API_KEY and POSTGRES_PASSWORD
+docker compose up --build
+docker compose run --rm api python -m backend.app.seed
 ```
 
-#### 💻 Terminal 3 — Next.js Frontend UI
-```bash
-cd frontend
-npm run dev
+Compose runs `db` (PostgreSQL 16), `migrate` (Alembic), `api`, `worker` and `web`.
+
+## Repository layout
+
 ```
-- Web Application will be live at: `http://localhost:3000`
-
----
-
-### Method 3: Running with Docker (PostgreSQL)
-
-If you prefer using a PostgreSQL database rather than SQLite:
-
-1. Start the PostgreSQL container:
-   ```bash
-   docker-compose up -d
-   ```
-2. Update `.env` with your Postgres connection string:
-   ```env
-   DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/welfare_awareness
-   ```
-3. Run migrations / seed script:
-   ```bash
-   python -m backend.app.seed
-   ```
-4. Start backend and frontend as usual.
-
----
-
-## 📖 API Documentation
-
-Once the backend is running, open your browser to view the interactive OpenAPI documentation:
-
-| Interface | URL | Description |
-| :--- | :--- | :--- |
-| **Swagger UI** | [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) | Interactive API testing sandbox |
-| **ReDoc** | [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc) | Detailed endpoint specifications |
-
-### Core API Endpoints
-
-- `GET /api/dashboard/stats`: Aggregate KPIs, top scheme gaps, intent counts.
-- `GET /api/schemes`: List registered schemes (PM-KISAN, PMFBY, PMAY, etc.).
-- `GET /api/geography/distribution`: State and district-wise gap signals for choropleths.
-- `GET /api/documents`: Filterable citizen queries, split by gap type, sentiment, and scheme.
-- `POST /api/analyze/text`: Real-time NLP inference on custom citizen inquiries.
-- `POST /api/collection/campaigns`: Trigger automated crawl campaigns across civic sources.
-- `GET /api/health`: System health & database connectivity status.
-
----
-
-## 🛠 Troubleshooting & FAQs
-
-### Q: PowerShell shows `Execution of scripts is disabled on this system` when activating `venv`?
-Run this command in PowerShell to permit script execution for your session:
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+backend/
+  app/
+    collection/     safe HTTP, robots, extractors, source registry, campaign engine
+    nlp/            text processing, schemes, classifiers, embeddings, training
+    services/       ingest/process pipeline, analytics, clustering, datasets, jobs, vector index
+    routers/        FastAPI endpoints
+    models/         SQLAlchemy models
+    main.py         FastAPI app;  maintenance.py, seed.py
+  migrations/       Alembic migrations
+  worker.py         collection + processing worker
+frontend/           Next.js 16 app (src/app routes, src/components, src/lib)
+data/raw/           labelled training data: original dataset, Hindi / romanized-Hindi translations, AI-annotated live sample
+data/models/        versioned model artifacts (joblib + metadata)
+docs/               documentation, evaluation report, screenshots
+tests/              pytest suite (crawler tests use mock HTTP; no external requests)
 ```
-
-### Q: Port 8000 or 3000 is already in use?
-- Change the backend port: `uvicorn backend.app.main:app --port 8001 --reload` (update `NEXT_PUBLIC_API_URL` in `.env` accordingly).
-- Change the frontend port: `cd frontend && npm run dev -- -p 3001`.
-
-### Q: How do I test the NLP pipeline on custom sentences?
-Visit `http://localhost:3000/analyze` or run a quick POST request:
-```bash
-curl -X POST "http://127.0.0.1:8000/api/analyze/text" \
-  -H "Content-Type: application/json" \
-  -d "{\"text\": \"I applied for PM-KISAN 3 months ago but have not received my 6000 rupees installment.\"}"
-```
-
-### Q: Are the map boundaries for India included?
-Yes! The vector geo-boundaries (`india.geojson` and `india_districts.geojson`) are located in `frontend/public/` and load automatically in the **Geography** view.
-
----
-
-## 🤝 Contributing & License
-
-Contributions, bug reports, and pull requests are welcome!
-
-Distributed under the **MIT License**. See `LICENSE` for more information.

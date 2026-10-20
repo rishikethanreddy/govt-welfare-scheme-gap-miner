@@ -7,10 +7,10 @@ Provides a normalized geographic hierarchy:
 Used for geographic aggregation and map rendering.
 """
 
-from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from backend.app.database import Base
+from backend.app.models.coltypes import UTCDateTime, utcnow
 
 
 class GeographicEntity(Base):
@@ -35,7 +35,7 @@ class GeographicEntity(Base):
     iso_code = Column(String(10), nullable=True, doc="ISO 3166-2 code for states")
 
     # ── Timestamps ────────────────────────────────────────────────────────
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
 
     # ── Relationships ─────────────────────────────────────────────────────
     parent = relationship("GeographicEntity", remote_side=[id], backref="children", lazy="select")

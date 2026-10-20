@@ -5,9 +5,9 @@ Only displays actual metrics from real evaluations.
 If no evaluation exists, metrics remain null.
 """
 
-from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Text, Float, Boolean
 from backend.app.database import Base
+from backend.app.models.coltypes import UTCDateTime, utcnow
 
 
 class ModelVersion(Base):
@@ -25,7 +25,7 @@ class ModelVersion(Base):
     # ── Training ──────────────────────────────────────────────────────────
     training_dataset_version = Column(String(50), nullable=True)
     training_samples = Column(Integer, nullable=True)
-    training_date = Column(DateTime, nullable=True)
+    training_date = Column(UTCDateTime, nullable=True)
 
     # ── Evaluation Metrics (null until actual evaluation) ─────────────────
     accuracy = Column(Float, nullable=True)
@@ -49,7 +49,7 @@ class ModelVersion(Base):
     is_active = Column(Boolean, nullable=False, default=False, doc="Currently active model for inference")
 
     # ── Timestamps ────────────────────────────────────────────────────────
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(UTCDateTime, nullable=False, default=utcnow)
 
     def __repr__(self):
         return f"<ModelVersion(name={self.model_name}, version={self.version}, status={self.status})>"

@@ -1,178 +1,97 @@
 "use client";
-import React, { useEffect, useState } from "react";
-import AppShell from "@/components/AppShell";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import React, { useState } from "react";
+import { StatusBadge, Timestamp } from "@/components/labels";
+import { OperatorOnly } from "@/components/OperatorAccess";
+import { Button, Card, Checkbox, EmptyState, ErrorState, Field, Input, LoadingBlock, Notice, PageHeader, Table, Td, Th } from "@/components/ui";
 import { api } from "@/lib/api";
-import { Activity, Play, Plus, Loader2, RefreshCw } from "lucide-react";
+import { duration, num } from "@/lib/format";
+import { useApi } from "@/lib/hooks";
+import type { CampaignSnapshot } from "@/lib/useLiveStream";
 
-export default function LiveCampaignsPage() {
-  const [campaigns, setCampaigns] = useState<any[]>([]);
-  const [funnel, setFunnel] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [running, setRunning] = useState<number | null>(null);
+interface Source { id: number; name: string; adapter: string; active: boolean; policy_status: string; verification_status: string; max_pages: number | null }
 
-  const fetchData = async () => {
+function NewJob() {
+  const router = useRouter();
+  const sources = useApi<Source[]>("/api/sources");
+  const usable = (sources.data ?? []).filter((s) => s.active && s.policy_status === "allowed");
+  const [picked, setPicked] = useState<number[]>([]);
+  const [name, setName] = useState("Manual collection");
+  const [pages, setPages] = useState(15);
+  const [depth, setDepth] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const submit = async () => {
+    setBusy(true); setError(undefined);
     try {
-      const [c, f] = await Promise.all([
-        api.get("/api/collection/campaigns"),
-        api.get("/api/collection/funnel"),
-      ]);
-      setCampaigns(c);
-      setFunnel(f);
+      const c = await api.post<CampaignSnapshot>("/api/collection/campaigns",
+        { name, source_ids: picked.length ? picked : null, max_pages_per_source: pages, max_depth: depth });
+      router.push(`/live/campaigns/${c.id}`);
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      setError((e as Error).message);
+      setBusy(false);
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
-
-  const createCampaign = async () => {
-    setCreating(true);
-    try {
-      await api.post("/api/collection/campaigns?name=Auto Campaign&max_urls=5000&max_depth=3");
-      await fetchData();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const runCampaign = async (id: number) => {
-    setRunning(id);
-    try {
-      await api.post(`/api/collection/campaigns/${id}/run-async`);
-      await fetchData();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setRunning(null);
-    }
-  };
-
+  if (sources.loading) return <LoadingBlock rows={3} />;
   return (
-    <AppShell>
-      <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <Activity className="w-6 h-6 text-cyan-400" />
-                Collection Campaigns
-              </h1>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">LIVE DATA</span>
-            </div>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Manage and monitor large-scale collection campaigns
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={createCampaign}
-              disabled={creating}
-              className="flex items-center gap-2 px-4 py-2 text-xs rounded-lg bg-amber-500 hover:bg-amber-600 text-black font-medium disabled:opacity-50 transition-colors"
-            >
-              {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              New Campaign
-            </button>
-            <button onClick={fetchData} className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg border border-border/40 bg-secondary hover:bg-secondary/80 text-muted-foreground transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Pipeline Funnel */}
-        {funnel && (
-          <Card className="border-border/30 bg-card/50">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Global Pipeline Funnel</CardTitle>
-              <CardDescription className="text-xs">Where records are gained or lost across all campaigns</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                {(funnel.funnel || []).map((stage: any) => (
-                  <div
-                    key={stage.stage}
-                    className={`p-3 rounded-lg border text-center ${
-                      stage.highlight ? "border-amber-500/30 bg-amber-500/5" :
-                      stage.delta ? "border-red-500/20 bg-red-500/5" : "border-border/20 bg-secondary/30"
-                    }`}
-                  >
-                    <p className={`text-lg font-bold ${stage.highlight ? "text-amber-500" : stage.delta ? "text-red-400" : ""}`}>
-                      {stage.count}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">{stage.stage}</p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Campaigns Table */}
-        {loading ? (
-          <Card className="h-60 animate-pulse border-border/30" />
-        ) : (
-          <Card className="border-border/30 bg-card/50">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Campaigns ({campaigns.length})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {campaigns.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-12">No campaigns created yet. Click &quot;New Campaign&quot; to start.</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-border/30">
-                      <TableHead className="text-xs">Name</TableHead>
-                      <TableHead className="text-xs">Status</TableHead>
-                      <TableHead className="text-xs text-right">URLs</TableHead>
-                      <TableHead className="text-xs text-right">Pages</TableHead>
-                      <TableHead className="text-xs text-right">Records</TableHead>
-                      <TableHead className="text-xs text-right">Final</TableHead>
-                      <TableHead className="text-xs text-center">Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {campaigns.map((c) => (
-                      <TableRow key={c.id} className="border-border/20">
-                        <TableCell className="text-xs font-medium">{c.name}</TableCell>
-                        <TableCell className="text-xs">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                            c.status === "completed" ? "bg-emerald-500/10 text-emerald-400" :
-                            c.status === "failed" ? "bg-red-500/10 text-red-400" :
-                            ["pending","discovering","collecting"].includes(c.status) ? "bg-amber-500/10 text-amber-500" :
-                            "bg-secondary text-muted-foreground"
-                          }`}>
-                            {c.status}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-xs text-right">{c.urls_discovered || 0}</TableCell>
-                        <TableCell className="text-xs text-right">{c.pages_downloaded || 0}</TableCell>
-                        <TableCell className="text-xs text-right">{c.records_extracted || 0}</TableCell>
-                        <TableCell className="text-xs text-right font-medium text-amber-500">{c.records_final || 0}</TableCell>
-                        <TableCell className="text-center">
-                          <button
-                            onClick={() => runCampaign(c.id)}
-                            disabled={running === c.id || ["collecting", "discovering", "pending"].includes(c.status)}
-                            className="p-1 rounded hover:bg-secondary transition-colors disabled:opacity-30"
-                          >
-                            {running === c.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 text-amber-500" />}
-                          </button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        )}
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="Job name" htmlFor="job-name"><Input id="job-name" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="Max pages per source" htmlFor="job-pages" hint="The source's own limit applies if lower.">
+          <Input id="job-pages" type="number" min={1} max={200} value={pages} onChange={(e) => setPages(Number(e.target.value))} /></Field>
+        <Field label="Link depth" htmlFor="job-depth" hint="0 = seed pages only; 1 = also follow relevant links once.">
+          <Input id="job-depth" type="number" min={0} max={3} value={depth} onChange={(e) => setDepth(Number(e.target.value))} /></Field>
       </div>
-    </AppShell>
+      <fieldset>
+        <legend className="mb-2 text-xs font-medium text-muted">Sources ({usable.length} enabled; none selected = all enabled sources)</legend>
+        <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+          {usable.map((s) => (
+            <Checkbox key={s.id} label={`${s.name} (${s.adapter})`} checked={picked.includes(s.id)}
+              onChange={(e) => setPicked((p) => e.target.checked ? [...p, s.id] : p.filter((x) => x !== s.id))} />
+          ))}
+        </div>
+      </fieldset>
+      {error && <Notice tone="danger">{error}</Notice>}
+      <Button variant="primary" onClick={submit} loading={busy} disabled={!name.trim() || !usable.length}>Queue job</Button>
+      <p className="text-xs text-muted">Jobs are executed by the worker process. Requests respect robots.txt, per-host delays, size limits and SSRF protection.</p>
+    </div>
+  );
+}
+
+export default function CampaignsPage() {
+  const [archived, setArchived] = useState(false);
+  const list = useApi<{ items: CampaignSnapshot[]; archived_count: number }>(`/api/collection/campaigns?include_archived=${archived}&limit=100`, { refreshMs: 10000 });
+  return (
+    <div className="space-y-5">
+      <PageHeader title="Collection jobs" description="Each job collects from the selected registered sources. Metrics are counted from actual fetches and stored records." />
+      <Card title="New collection job">
+        <OperatorOnly fallback={<p className="text-sm text-muted">Operator access is required to start collection.</p>}><NewJob /></OperatorOnly>
+      </Card>
+      <Card title="History" bodyClassName="p-0 px-4 pb-2"
+        actions={list.data?.archived_count ? <Checkbox label={`Show ${num(list.data.archived_count)} archived`} checked={archived} onChange={(e) => setArchived(e.target.checked)} /> : undefined}>
+        {list.error && <div className="py-3"><ErrorState error={list.error} onRetry={list.reload} /></div>}
+        {!list.data ? <div className="py-4"><LoadingBlock /></div> : list.data.items.length === 0 ? <EmptyState title="No collection jobs yet" /> : (
+          <Table caption="Collection jobs">
+            <thead><tr><Th>Job</Th><Th>Status</Th><Th>Started</Th><Th>Duration</Th><Th className="text-right">URLs</Th><Th className="text-right">Failed</Th><Th className="text-right">New records</Th><Th className="text-right">Duplicates</Th></tr></thead>
+            <tbody>{list.data.items.map((c) => (
+              <tr key={c.id} className="hover:bg-surface-2/60">
+                <Td><Link className="font-medium hover:text-primary hover:underline" href={`/live/campaigns/${c.id}`}>{c.name}</Link><span className="block text-xs text-subtle">#{c.id}</span></Td>
+                <Td><StatusBadge status={c.status} /></Td>
+                <Td className="text-xs"><Timestamp value={c.crawl_started_at} /></Td>
+                <Td className="tabular text-xs">{duration(c.elapsed_seconds)}</Td>
+                <Td className="text-right tabular">{num(c.metrics.urls_processed)}</Td>
+                <Td className="text-right tabular">{num(c.metrics.urls_failed + c.metrics.urls_blocked)}</Td>
+                <Td className="text-right tabular">{num(c.metrics.records_final)}</Td>
+                <Td className="text-right tabular">{num(c.metrics.records_duplicate)}</Td>
+              </tr>
+            ))}</tbody>
+          </Table>
+        )}
+      </Card>
+    </div>
   );
 }

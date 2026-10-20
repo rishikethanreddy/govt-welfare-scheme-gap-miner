@@ -1,285 +1,98 @@
 "use client";
-import React, { useEffect, useState, useCallback, useRef } from "react";
-import AppShell from "@/components/AppShell";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+import Link from "next/link";
+import { Pause, Play } from "lucide-react";
+import React, { useState } from "react";
+import { CampaignMetrics, EventLog, RecordFeed } from "@/components/CampaignProgress";
+import { StatusBadge, Timestamp } from "@/components/labels";
+import { OperatorOnly } from "@/components/OperatorAccess";
+import { Badge, Button, Card, LinkButton, LoadingBlock, Notice, PageHeader, Table, Td, Th } from "@/components/ui";
 import { api } from "@/lib/api";
-import {
-  Radio, Globe, Zap, Play, Square, RefreshCw,
-  AlertTriangle, CheckCircle, Loader2, ArrowRight
-} from "lucide-react";
+import { label, num } from "@/lib/format";
+import { useApi } from "@/lib/hooks";
+import { LiveRecord, useLiveStream } from "@/lib/useLiveStream";
 
-export default function LiveDashboardPage() {
-  const [overview, setOverview] = useState<any>(null);
-  const [feed, setFeed] = useState<any>(null);
-  const [workerStatus, setWorkerStatus] = useState<any>(null);
-  const [sources, setSources] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const pollRef = useRef<NodeJS.Timeout | null>(null);
+interface Source { id: number; name: string; adapter: string; policy_status: string; active: boolean; verification_status: string;
+  last_success_at: string | null; hours_since_success: number | null; last_error: string | null; records_collected: number; schedule: string }
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [ov, fd, ws, src] = await Promise.all([
-        api.get("/api/collection/overview"),
-        api.get("/api/collection/live-feed"),
-        api.get("/api/collection/worker-status"),
-        api.get("/api/sources"),
-      ]);
-      setOverview(ov);
-      setFeed(fd);
-      setWorkerStatus(ws);
-      setSources(src);
-    } catch (e) {
-      console.error("Live dashboard fetch error", e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+export default function LiveMonitor() {
+  const live = useLiveStream("/api/collection/stream", { initialRecords: false });
+  const recent = useApi<LiveRecord[]>("/api/collection/feed?limit=20");
+  const sources = useApi<Source[]>("/api/sources", { refreshMs: 30000 });
+  const [toggling, setToggling] = useState(false);
+  const st = live.status;
+  const active = st?.active_campaigns ?? [];
+  // Show records streamed since the page opened first, then the most recent stored ones.
+  const seen = new Set<number>();
+  const records = [...live.records, ...(recent.data ?? [])].filter((r) => !seen.has(r.id) && !!seen.add(r.id));
 
-  useEffect(() => {
-    fetchData();
-    // Auto-refresh every 5 seconds for live feel
-    pollRef.current = setInterval(fetchData, 5000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [fetchData]);
-
-  const toggleAutopilot = async (enable: boolean) => {
-    await api.post(`/api/collection/toggle-autopilot?enable=${enable}`);
-    fetchData();
+  const toggleAutopilot = async () => {
+    setToggling(true);
+    try { await api.post(`/api/collection/autopilot?enabled=${!st?.autopilot_enabled}`); } finally { setToggling(false); }
   };
-
-  const startScrapeAll = async () => {
-    try {
-      await api.post("/api/sources/scrape-all?max_records=50");
-      fetchData();
-    } catch (e) {
-      console.error("Scrape all failed", e);
-    }
-  };
-
-  const activeSources = sources.filter(s => s.active);
-  const isRunning = workerStatus?.status === "running";
-
-  // Recent gap signals from live feed
-  const recentGapSignals = (feed?.recent_documents || []).filter((d: any) => 
-    d.gap && d.gap.toLowerCase() === "yes"
-  );
+  const enabled = (sources.data ?? []).filter((s) => s.active);
 
   return (
-    <AppShell>
-      <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <Radio className={`w-6 h-6 ${isRunning ? "text-red-400 animate-pulse" : "text-muted-foreground"}`} />
-                Live Scraping Intelligence
-              </h1>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">LIVE DATA</span>
+    <div className="space-y-5">
+      <PageHeader title="Live collection monitor"
+        description="Real-time view of collection jobs run by the worker. Every count and record below comes from what was actually fetched, persisted and processed."
+        actions={<LinkButton href="/live/campaigns" variant="primary">New collection job</LinkButton>} />
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card title="Worker" description={live.connected ? "Live updates connected" : "Connecting to live updates…"}>
+          {!st ? <LoadingBlock rows={3} /> : (
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between"><span className="text-muted">Status</span>
+                {st.worker_alive ? <Badge tone="success">{label(st.worker_info?.state ?? "running")}</Badge> : <Badge tone="warning">offline</Badge>}</div>
+              <div className="flex items-center justify-between"><span className="text-muted">Last heartbeat</span><Timestamp value={st.last_heartbeat} relativeOnly /></div>
+              <div className="flex items-center justify-between"><span className="text-muted">Scheduled collection</span>
+                <span className="flex items-center gap-2">{st.autopilot_enabled ? <Badge tone="success">on</Badge> : <Badge>off</Badge>}
+                  <OperatorOnly fallback={null}><Button size="sm" variant="ghost" onClick={toggleAutopilot} loading={toggling}>
+                    {st.autopilot_enabled ? <><Pause className="h-3.5 w-3.5" />Disable</> : <><Play className="h-3.5 w-3.5" />Enable</>}</Button></OperatorOnly>
+                </span></div>
+              {!st.worker_alive && <Notice tone="warning">The worker is not running, so queued jobs will not start. Run <code>npm run dev:worker</code> (or <code>python -m backend.worker</code>).</Notice>}
+              <p className="text-xs text-muted">When scheduled collection is on, sources marked daily/weekly are collected when due (at most every 12 hours by default).</p>
             </div>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Real-time collection from public sources — what the system is discovering right now
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={startScrapeAll}
-              className="flex items-center gap-2 px-4 py-2 text-xs rounded-lg bg-amber-500 hover:bg-amber-600 text-black font-medium transition-colors"
-            >
-              <Play className="w-3.5 h-3.5" />
-              Scrape All Sources
-            </button>
-            <button
-              onClick={() => toggleAutopilot(!workerStatus?.auto_pilot_enabled)}
-              className={`flex items-center gap-2 px-4 py-2 text-xs rounded-lg border font-medium transition-colors ${
-                workerStatus?.auto_pilot_enabled
-                  ? "border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                  : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-              }`}
-            >
-              {workerStatus?.auto_pilot_enabled ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              {workerStatus?.auto_pilot_enabled ? "Stop Autopilot" : "Start Autopilot"}
-            </button>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Card key={i} className="animate-pulse border-border/30"><CardContent className="p-5 h-20" /></Card>
-            ))}
-          </div>
-        ) : (
-          <>
-            {/* Live KPIs */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-              {[
-                { label: "Active Sources", value: overview?.active_sources || 0, icon: Globe },
-                { label: "URLs Discovered", value: overview?.total_urls_discovered || 0, icon: ArrowRight },
-                { label: "Pages Collected", value: overview?.total_pages_collected || 0, icon: CheckCircle },
-                { label: "Records Extracted", value: overview?.total_documents || 0, icon: Zap },
-                { label: "Active Campaigns", value: overview?.total_campaigns || 0, icon: Radio },
-              ].map((kpi) => (
-                <Card key={kpi.label} className="border-border/30 bg-card/50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs text-muted-foreground">{kpi.label}</p>
-                        <p className="text-xl font-bold">{kpi.value}</p>
-                      </div>
-                      <kpi.icon className="w-5 h-5 text-muted-foreground" />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+          )}
+        </Card>
+        <Card title="Active job" className="lg:col-span-2">
+          {active.length === 0 ? (
+            <p className="text-sm text-muted">No job is running. Start one from <Link className="text-primary hover:underline" href="/live/campaigns">Collection jobs</Link>.</p>
+          ) : active.map((c) => (
+            <div key={c.id} className="space-y-2">
+              <Link href={`/live/campaigns/${c.id}`} className="text-sm font-medium text-primary hover:underline">{c.name}</Link>
+              <CampaignMetrics c={c} />
             </div>
-
-            {/* Collection Pipeline Funnel */}
-            {overview && (
-              <Card className="border-border/30 bg-card/50">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Collection Pipeline</CardTitle>
-                  <CardDescription className="text-xs">Source → URLs → Pages → Records → Questions → Gap Signals</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between gap-2 py-2">
-                    {[
-                      { label: "Sources", value: overview.active_sources, color: "bg-blue-500" },
-                      { label: "URLs", value: overview.total_urls_discovered, color: "bg-cyan-500" },
-                      { label: "Pages", value: overview.total_pages_collected, color: "bg-emerald-500" },
-                      { label: "Records", value: overview.total_documents, color: "bg-amber-500" },
-                    ].map((stage, i) => (
-                      <React.Fragment key={stage.label}>
-                        <div className="flex-1 text-center">
-                          <div className={`w-12 h-12 mx-auto rounded-xl ${stage.color}/15 flex items-center justify-center mb-1`}>
-                            <span className="text-sm font-bold">{stage.value}</span>
-                          </div>
-                          <p className="text-[10px] text-muted-foreground">{stage.label}</p>
-                        </div>
-                        {i < 3 && <ArrowRight className="w-4 h-4 text-muted-foreground/40 shrink-0" />}
-                      </React.Fragment>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Live Gap Signal Stream (Mini) */}
-              <Card className="border-border/30 bg-card/50">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-sm">Recent Gap Signals</CardTitle>
-                    {isRunning && <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />}
-                  </div>
-                  <CardDescription className="text-xs">Latest awareness gap signals discovered from live sources</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2 max-h-[350px] overflow-y-auto">
-                  {recentGapSignals.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-8">No gap signals detected yet. Start scraping to discover new signals.</p>
-                  ) : (
-                    recentGapSignals.slice(0, 8).map((doc: any, i: number) => (
-                      <div key={i} className="p-3 rounded-lg bg-secondary/50 border border-amber-500/10 animate-in fade-in slide-in-from-left-2">
-                        <p className="text-xs text-foreground/90 line-clamp-2">&ldquo;{doc.text}&rdquo;</p>
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {doc.scheme && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500">{doc.scheme}</span>}
-                          {doc.gap_type && <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">{doc.gap_type}</span>}
-                          {doc.state && <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">{doc.state}</span>}
-                          {doc.source && <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-500/10 text-muted-foreground">{doc.source}</span>}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Recent URLs */}
-              <Card className="border-border/30 bg-card/50">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Recent Scraping Activity</CardTitle>
-                  <CardDescription className="text-xs">Latest URLs processed by the scraper</CardDescription>
-                </CardHeader>
-                <CardContent className="max-h-[350px] overflow-y-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-border/30">
-                        <TableHead className="text-xs">URL</TableHead>
-                        <TableHead className="text-xs text-right">Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(feed?.recent_urls || []).map((u: any, i: number) => (
-                        <TableRow key={i} className="border-border/20">
-                          <TableCell className="text-xs text-muted-foreground truncate max-w-[300px]" title={u.url}>
-                            {u.url}
-                          </TableCell>
-                          <TableCell className="text-xs text-right">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                              u.status === "success" ? "bg-emerald-500/10 text-emerald-400" :
-                              u.status === "failed" ? "bg-red-500/10 text-red-400" :
-                              "bg-blue-500/10 text-blue-400"
-                            }`}>
-                              {u.status}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {(!feed?.recent_urls || feed.recent_urls.length === 0) && (
-                        <TableRow>
-                          <TableCell colSpan={2} className="text-xs text-muted-foreground text-center py-8">
-                            No scraping activity yet
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Source Registry Summary */}
-            <Card className="border-border/30 bg-card/50">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Active Source Registry</CardTitle>
-                <CardDescription className="text-xs">{activeSources.length} active sources out of {sources.length} registered</CardDescription>
-              </CardHeader>
-              <CardContent className="max-h-[300px] overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-border/30">
-                      <TableHead className="text-xs">Source</TableHead>
-                      <TableHead className="text-xs">Type</TableHead>
-                      <TableHead className="text-xs">Policy</TableHead>
-                      <TableHead className="text-xs text-right">Records</TableHead>
-                      <TableHead className="text-xs text-right">Runs</TableHead>
-                      <TableHead className="text-xs text-right">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sources.slice(0, 20).map((s: any) => (
-                      <TableRow key={s.id} className="border-border/20">
-                        <TableCell className="text-xs font-medium truncate max-w-[200px]" title={s.name}>{s.name}</TableCell>
-                        <TableCell className="text-[10px] text-muted-foreground">{s.source_type}</TableCell>
-                        <TableCell className="text-[10px]">
-                          <span className={s.policy_status === "allowed" ? "text-emerald-400" : s.policy_status === "blocked" ? "text-red-400" : "text-muted-foreground"}>
-                            {s.policy_status || "unknown"}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-xs text-right">{s.total_records_collected}</TableCell>
-                        <TableCell className="text-xs text-right text-muted-foreground">{s.total_runs}</TableCell>
-                        <TableCell className="text-xs text-right">
-                          <span className={`w-2 h-2 rounded-full inline-block ${s.active ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </>
-        )}
+          ))}
+        </Card>
       </div>
-    </AppShell>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card title="Activity log" description="Fetches, extraction results, failures and stage changes as they happen.">
+          <EventLog events={live.events} empty="Waiting for activity. Events appear here while a job runs." />
+        </Card>
+        <Card title="Newly processed records" description="Records appear once they are persisted and labelled.">
+          <RecordFeed records={records} />
+        </Card>
+      </div>
+
+      <Card title="Source freshness" bodyClassName="p-0 px-4 pb-2" actions={<Link className="text-xs text-primary hover:underline" href="/live/sources">Manage sources</Link>}>
+        {!sources.data ? <div className="py-4"><LoadingBlock /></div> : (
+          <Table caption="Enabled sources and their last successful collection">
+            <thead><tr><Th>Source</Th><Th>Verification</Th><Th>Last success</Th><Th className="text-right">Records</Th><Th>Schedule</Th><Th>Last error</Th></tr></thead>
+            <tbody>{enabled.map((s) => (
+              <tr key={s.id}>
+                <Td className="font-medium">{s.name}</Td>
+                <Td><StatusBadge status={s.verification_status} /></Td>
+                <Td className="text-xs">{s.last_success_at ? <Timestamp value={s.last_success_at} relativeOnly /> : <span className="text-subtle">never</span>}</Td>
+                <Td className="text-right tabular">{num(s.records_collected)}</Td>
+                <Td className="text-xs">{s.schedule}</Td>
+                <Td className="max-w-xs truncate text-xs text-danger" title={s.last_error ?? undefined}>{s.last_error ?? ""}</Td>
+              </tr>
+            ))}</tbody>
+          </Table>
+        )}
+      </Card>
+    </div>
   );
 }

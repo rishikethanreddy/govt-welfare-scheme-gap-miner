@@ -1,34 +1,35 @@
-# ── API Framework ─────────────────────────────────────────────────────────
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-pydantic>=2.5.3
-pydantic-settings>=2.1.0
-python-multipart>=0.0.6
+# ── API ───────────────────────────────────────────────────────────────────
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+python-multipart>=0.0.9
 
 # ── Database ──────────────────────────────────────────────────────────────
-sqlalchemy>=2.0.25
-alembic>=1.13.1
+sqlalchemy>=2.0.30
+alembic>=1.13
 psycopg2-binary>=2.9.9
 
-# ── Data Processing ───────────────────────────────────────────────────────
-pandas>=2.2.0
-numpy>=1.26.3
-
-# ── ML / NLP ──────────────────────────────────────────────────────────────
-scikit-learn>=1.4.0
-sentence-transformers>=2.3.1
+# ── Data / ML / NLP ───────────────────────────────────────────────────────
+numpy>=1.26
+pandas>=2.2
+scikit-learn>=1.4
+sentence-transformers>=3.0
 hdbscan>=0.8.33
-joblib>=1.3.2
-
-# ── Web Scraping ──────────────────────────────────────────────────────────
-httpx>=0.27.0
-beautifulsoup4>=4.12.3
-lxml>=5.1.0
-feedparser>=6.0.11
-
-# ── Language Detection ────────────────────────────────────────────────────
+joblib>=1.3
 langdetect>=1.0.9
+python-dateutil>=2.9
+
+# ── Collection ────────────────────────────────────────────────────────────
+httpx>=0.27
+beautifulsoup4>=4.12
+lxml>=5.1
+feedparser>=6.0.11
+pypdf>=4.2
 
 # ── Utilities ─────────────────────────────────────────────────────────────
-python-dotenv>=1.0.1
-tqdm>=4.66.1
+python-dotenv>=1.0
+
+# ── Tests ─────────────────────────────────────────────────────────────────
+pytest>=8.0
+pytest-timeout>=2.3
