@@ -1,0 +1,25 @@
+Bogam, Chavan and Rani (2023) Awareness and utilisation of social welfare schemes among elderly villagers in rural Telangana. <<Verify journal, volume, pages>>
+
+Campello, R.J.G.B., Moulavi, D. and Sander, J. (2013) 'Density-based clustering based on hierarchical density estimates', in Advances in Knowledge Discovery and Data Mining (PAKDD 2013). Berlin: Springer, pp. 160-172.
+
+Jyrwa, Thabah, Khongtim and Kharbudon (2021) Awareness of Central Government schemes in Sohbar village, Meghalaya. <<Verify journal, volume, pages>>
+
+Moorthy and Jeyadevi (2023) Awareness of Central Government schemes for sustainable development in rural India with reference to Coimbatore. <<Verify journal, volume, pages>>
+
+Nikam, Ashok and Pal (2022) Farmers' information needs, access and impact across cotton-producing regions of Maharashtra. <<Verify journal, volume, pages>>
+
+Reimers, N. and Gurevych, I. (2019) 'Sentence-BERT: sentence embeddings using Siamese BERT-networks', in Proceedings of EMNLP-IJCNLP 2019, pp. 3982-3992.
+
+Reimers, N. and Gurevych, I. (2020) 'Making monolingual sentence embeddings multilingual using knowledge distillation', in Proceedings of EMNLP 2020, pp. 4512-4525.
+
+Salton, G. and Buckley, C. (1988) 'Term-weighting approaches in automatic text retrieval', Information Processing & Management, 24(5), pp. 513-523.
+
+Sethi and Biswal (2023) Awareness of farmers towards agricultural government schemes in Dhenkanal, Odisha. <<Verify journal, volume, pages>>
+
+Shyam et al. (2013) Rural people's awareness and access to government schemes in six villages of Buxar, Bihar. <<Verify journal, volume, pages>>
+
+Tripathi and Panwar (2024) Knowledge of rural women regarding selected government schemes. <<Verify journal, volume, pages>>
+
+Vidhate and Kundap (2016) Awareness of newly launched social security schemes among rural population in India. <<Verify journal, volume, pages>>
+
+Zhao, Z. and Mei, Q. (2013) 'Questions about questions: an empirical analysis of information needs on Twitter', in Proceedings of the 22nd International Conference on World Wide Web (WWW 2013), pp. 1545-1556.
